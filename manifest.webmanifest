@@ -1,0 +1,21 @@
+{
+  "name": "Kharcha — Expense & EMI Tracker",
+  "short_name": "Kharcha",
+  "description": "Track UPI, cash, card spends, recharges, subscriptions and loan EMIs in ₹.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F2F5F3",
+  "theme_color": "#0E7A5C",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ],
+  "shortcuts": [
+    {"name": "Add expense", "url": "./#add", "icons": [{"src": "icons/icon-192.png", "sizes": "192x192"}]}
+  ]
+}
