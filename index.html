@@ -314,7 +314,14 @@ function restore(){const inp=document.createElement("input");inp.type="file";inp
 async function boot(){
   attach(localStore());
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
-  if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(()=>{})}
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(reg=>{
+      const check=()=>reg.update().catch(()=>{});check();
+      document.addEventListener("visibilitychange",()=>{if(!document.hidden)check()});
+    }).catch(()=>{});
+    let reloaded=false;const hadCtrl=!!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener("controllerchange",()=>{if(hadCtrl&&!reloaded&&!$("sheetHost").innerHTML){reloaded=true;location.reload()}});
+  }
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();S.installEvt=e;render()});
   window.addEventListener("appinstalled",()=>{S.installEvt=null;toast("Kharcha installed");render()});
   if(location.hash==="#add"){history.replaceState(null,"",location.pathname);txSheet()}

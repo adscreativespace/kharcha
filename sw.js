@@ -1,5 +1,5 @@
 /* Kharcha service worker: offline app shell + background due-date alerts */
-const VERSION = "kharcha-v2";
+const VERSION = "kharcha-v3";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/badge-96.png"];
 
 self.addEventListener("install", e => {
@@ -22,7 +22,7 @@ self.addEventListener("fetch", e => {
   if (url.origin !== location.origin) return;
   // network first for the page so updates arrive; cache fallback offline
   if (e.request.mode === "navigate") {
-    e.respondWith(fetch(e.request).then(r => { caches.open(VERSION).then(c => c.put("./index.html", r.clone())); return r; })
+    e.respondWith(fetch(e.request, { cache: "no-store" }).then(r => { caches.open(VERSION).then(c => c.put("./index.html", r.clone())); return r; })
       .catch(() => caches.match("./index.html")));
     return;
   }
