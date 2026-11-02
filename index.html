@@ -160,6 +160,11 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 .cloudbar span{min-width:0}.cloudbar .btn{flex:none}
 .cloudbar.warn{background:var(--warn-soft)}.cloudbar.bad{background:var(--bad-soft)}
 #cloudBar:empty{display:none}
+.credit-toggle{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);cursor:pointer}
+.credit-toggle input{width:20px;height:20px;flex:none;margin:1px 0 0;accent-color:var(--accent)}
+.credit-toggle b{display:block;font-weight:600}.credit-toggle small{color:var(--muted);font-size:12px}
+#lenderChips{margin-top:8px}
+.danger-link{color:var(--bad)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:99px;font-size:14px;font-weight:600;z-index:40}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
 @media (max-width:380px){.spent{font-size:34px}.grid2{grid-template-columns:1fr}}
@@ -227,7 +232,8 @@ const PRESETS=[["Jio prepaid","recharge","d28"],["Airtel prepaid","recharge","d2
  ["JioHotstar","subs","q3"],["Spotify","subs","m1"],["YouTube Premium","subs","m1"],["Google One","subs","y1"],
  ["Claude","subs","m1"],["Electricity bill","utilities","m1"],["FASTag","transport","m1"]];
 const catMap={};[...EXP_CATS,...INC_CATS].forEach(c=>catMap[c[0]]={id:c[0],name:c[1],color:c[2]});
-const modeName=Object.fromEntries(MODES);const cycleName=Object.fromEntries(CYCLES);
+const MODES_ALL=MODES.concat([["credit","On credit"]]);
+const modeName=Object.fromEntries(MODES_ALL);const cycleName=Object.fromEntries(CYCLES);
 
 /* ---------- helpers ---------- */
 const $=id=>document.getElementById(id);
@@ -342,6 +348,46 @@ const subs=()=>S.items.filter(x=>x.kind==="sub").sort((a,b)=>a.next<b.next?-1:1)
 const loans=()=>S.items.filter(x=>x.kind==="loan").sort((a,b)=>(a.next||"9")<(b.next||"9")?-1:1);
 const TABS=["overview","entries","recurring","loans"];
 
+/* ---------- shop credit (udhaar) ---------- */
+function lenders(){const seen={};const out=[];
+  S.items.filter(x=>x.lender&&((x.kind==="txn"&&x.mode==="credit")||x.kind==="settle"))
+    .sort((a,b)=>(b.date||"")<(a.date||"")?-1:(b.date||"")>(a.date||"")?1:(b.created||0)-(a.created||0))
+    .forEach(x=>{const k=x.lender.toLowerCase();if(!seen[k]){seen[k]=1;out.push(x.lender)}});return out}
+function creditBook(){const m={};const get=n=>{const k=n.toLowerCase();return m[k]=m[k]||{name:n,bought:0,paid:0,n:0,last:""}};
+  S.items.forEach(x=>{if(!x.lender)return;
+    if(x.kind==="txn"&&x.mode==="credit"){const o=get(x.lender);o.bought+=x.amount;o.n++;if(x.date>o.last)o.last=x.date}
+    else if(x.kind==="settle"){const o=get(x.lender);o.paid+=x.amount;if(x.date>o.last)o.last=x.date}});
+  return Object.values(m).map(o=>Object.assign(o,{due:Math.round((o.bought-o.paid)*100)/100})).sort((a,b)=>(b.due>0)-(a.due>0)||b.due-a.due||(a.last<b.last?1:-1))}
+const creditDue=()=>creditBook().reduce((a,o)=>a+Math.max(0,o.due),0);
+function creditCard(o){const clear=o.due<=0;
+  return '<div class="loan"><div class="loan-top"><div class="t"><b>'+esc(o.name)+'</b><small>'+o.n+' purchase'+(o.n===1?"":"s")+' · bought '+fmt(o.bought)+' · paid '+fmt(o.paid)+(o.last?' · last '+parse(o.last).toLocaleDateString("en-IN",{day:"numeric",month:"short"}):'')+'</small></div><div class="loan-bal"><small>'+(clear?"Settled":"You owe")+'</small><div class="num">'+fmt(Math.max(0,o.due))+'</div></div></div>'+
+    '<div class="loan-acts"><div>'+(clear?'<span class="pill ok">All paid</span>':'')+'</div><div class="toolsrow"><button class="linkbtn" data-credhist="'+esc(o.name)+'">History</button>'+(clear?'':'<button class="btn primary" data-credpay="'+esc(o.name)+'">Pay shop</button>')+'</div></div></div>'}
+function settleSheet(name){const o=creditBook().find(x=>x.name.toLowerCase()===name.toLowerCase());if(!o)return;
+  openSheet('<form id="sp"><div style="display:flex;flex-direction:column;gap:14px"><h3>Pay '+esc(o.name)+'</h3>'+
+    '<span class="note">You owe '+fmt(o.due)+'. This clears your credit with the shop. It isn\'t added to spending again, because the purchases were already counted when you bought them.</span>'+
+    '<div class="big-amt"><span>₹</span><input id="spa" inputmode="decimal" value="'+o.due+'" autofocus aria-label="Amount paid"></div>'+
+    '<div class="grid2"><div class="field"><label for="spd">Date</label><input id="spd" type="date" value="'+todayIso()+'"></div><div class="field"><label for="spm">Paid via</label><select id="spm">'+MODES.map(m=>'<option value="'+m[0]+'"'+(m[0]==="cash"?" selected":"")+'>'+m[1]+'</option>').join("")+'</select></div></div>'+
+    '<div class="note" id="spErr" role="alert" style="color:var(--bad)"></div>'+
+    '<div class="sheet-acts"><div class="right"><button type="button" class="btn" id="spc">Cancel</button><button class="btn primary">Save payment</button></div></div></div></form>',()=>{
+    $("spc").onclick=closeSheet;
+    $("sp").onsubmit=async e=>{e.preventDefault();const amount=Math.round(parseFloat(($("spa").value||"").replace(/[,₹\s]/g,""))*100)/100;
+      if(!(amount>0))return $("spErr").textContent="Enter an amount above ₹0.";
+      if(amount>o.due+0.5)return $("spErr").textContent="That's more than you owe ("+fmt(o.due)+"). Enter "+fmt(o.due)+" or less.";
+      await store.add({kind:"settle",lender:o.name,amount,date:$("spd").value||todayIso(),mode:$("spm").value,created:Date.now()});
+      const left=Math.max(0,Math.round((o.due-amount)*100)/100);closeSheet();toast("Paid "+fmt(amount)+" to "+o.name+(left?" · "+fmt(left)+" left":" · all clear"))};
+  });
+}
+function creditHistorySheet(name){const k=name.toLowerCase();
+  const rows=S.items.filter(x=>x.lender&&x.lender.toLowerCase()===k&&((x.kind==="txn"&&x.mode==="credit")||x.kind==="settle"))
+    .sort((a,b)=>a.date===b.date?(b.created||0)-(a.created||0):a.date<b.date?1:-1);
+  const o=creditBook().find(x=>x.name.toLowerCase()===k);
+  openSheet('<div style="display:flex;flex-direction:column;gap:12px"><h3>'+esc(name)+'</h3><span class="note">'+(o&&o.due>0?"You owe "+fmt(o.due):"All paid")+' · tap a purchase to edit it</span>'+
+    '<div style="display:flex;flex-direction:column;gap:6px">'+rows.map(x=>{const d=parse(x.date).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
+      if(x.kind==="settle")return '<div class="row" style="grid-template-columns:minmax(0,1fr) auto auto"><span class="t"><b>Paid</b><small>'+d+' · '+(modeName[x.mode]||x.mode)+'</small></span><span class="amt in">'+fmt(x.amount)+'</span><button class="linkbtn danger-link" data-undosettle="'+esc(x.id)+'">Undo</button></div>';
+      const m=catMap[x.cat]||catMap.other;return '<button class="row" data-edit="'+esc(x.id)+'" style="grid-template-columns:minmax(0,1fr) auto"><span class="t"><b>'+esc(x.note||m.name)+'</b><small>'+d+' · '+esc(m.name)+'</small></span><span class="amt">−'+fmt(x.amount)+'</span></button>'}).join("")+'</div>'+
+    '<div class="sheet-acts"><div class="right">'+(o&&o.due>0?'<button class="btn primary" data-credpay="'+esc(name)+'">Pay shop</button>':'')+'<button class="btn" id="chc">Close</button></div></div></div>',()=>{$("chc").onclick=closeSheet});
+}
+
 /* ---------- loans ---------- */
 function calcEmi(P,ratePa,n){P=Number(P);n=Number(n);const r=Number(ratePa)/1200;if(!(P>0&&n>0))return 0;if(!r)return P/n;return P*r*Math.pow(1+r,n)/(Math.pow(1+r,n)-1)}
 function loanStats(l){
@@ -368,11 +414,14 @@ function renderLoans(){
   const el=$("v-loans");const list=loans();
   const owe=list.filter(l=>l.dir!=="lent"),lent=list.filter(l=>l.dir==="lent");
   const oweBal=owe.reduce((a,l)=>a+loanStats(l).bal,0),lentBal=lent.reduce((a,l)=>a+loanStats(l).bal,0);
-  let h='<div class="trio" style="grid-template-columns:repeat(2,1fr)"><div><small>You owe</small><div class="num">'+fmt(oweBal)+'</div></div><div><small>Owed to you</small><div class="num">'+fmt(lentBal)+'</div></div></div>';
+  const book=creditBook(),cdue=creditDue();
+  let h='<div class="trio"><div><small>Loans you owe</small><div class="num">'+fmt(oweBal)+'</div></div><div><small>Shop credit</small><div class="num">'+fmt(cdue)+'</div></div><div><small>Owed to you</small><div class="num">'+fmt(lentBal)+'</div></div></div>';
   h+='<button class="btn" data-act="newloan">+ Add a loan</button>';
   if(!list.length)h+='<div class="empty"><b>Track every loan to the last EMI</b><span>Add home, vehicle, personal or business loans, credit-card EMIs, or money you lent to someone. Each payment logs as an expense and moves the next due date. Due and overdue EMIs show up on Overview.</span></div>';
   if(owe.length)h+='<h2>Loans you are repaying</h2>'+owe.map(loanCard).join("");
   if(lent.length)h+='<h2>Money you lent</h2>'+lent.map(loanCard).join("");
+  h+='<div class="sub-h"><h2>Shop credit (udhaar)</h2><span>'+(cdue?fmt(cdue)+" due":"")+'</span></div>';
+  h+=book.length?book.map(creditCard).join(""):'<div class="empty"><b>No shop credit yet</b><span>When you add an expense, tick <strong>Bought on credit</strong> and name the shop. It shows up here until you pay.</span></div>';
   el.innerHTML=h;
 }
 function loanSheet(l){
@@ -461,7 +510,7 @@ function renderOverview(mt,spent){
     return '<div class="bar"><div class="lbl"><i class="dot" style="background:'+m.color+'"></i><em>'+esc(m.name)+'</em></div><div class="num">'+fmt(v)+'<span class="pct">'+Math.round(v/spent*100)+'%</span></div><div class="track"><i style="width:'+(v/max*100).toFixed(1)+'%;background:'+m.color+'"></i></div></div>'}).join("")+'</div>';
   // by mode
   const byMode={};exp.forEach(t=>byMode[t.mode]=(byMode[t.mode]||0)+t.amount);
-  h+='<h2>How you paid</h2><div class="modes">'+MODES.filter(m=>byMode[m[0]]).map(m=>'<div class="mode"><small>'+m[1]+'</small><div class="num">'+fmt(byMode[m[0]])+'</div></div>').join("")+'</div>';
+  h+='<h2>How you paid</h2><div class="modes">'+MODES_ALL.filter(m=>byMode[m[0]]).map(m=>'<div class="mode"><small>'+m[1]+'</small><div class="num">'+fmt(byMode[m[0]])+'</div></div>').join("")+'</div>';
   // daily
   const days=new Date(S.cur.getFullYear(),S.cur.getMonth()+1,0).getDate();const per=Array(days).fill(0);
   exp.forEach(t=>{per[Number(t.date.slice(8,10))-1]+=t.amount});const dmax=Math.max(...per,1);
@@ -473,6 +522,7 @@ function renderOverview(mt,spent){
   // commitments
   const sm=subs().reduce((a,s)=>a+perMonth(s),0);
   if(sm)h+='<div class="commit"><div><small>Recurring commitments</small><b>'+subs().length+' recharges &amp; subscriptions</b></div><div class="num">'+fmt(sm)+'/mo</div></div>';
+  const cd=creditDue();if(cd){const shops=creditBook().filter(o=>o.due>0);h+='<button class="commit" data-goto="loans" style="border:0;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer"><div><small>Shop credit to pay</small><b>'+shops.map(o=>esc(o.name)).slice(0,3).join(", ")+(shops.length>3?" +"+(shops.length-3):"")+'</b></div><div class="num">'+fmt(cd)+'</div></button>'}
   const emis=loans().filter(l=>l.dir==="borrowed"&&loanStats(l).bal>0);
   if(emis.length)h+='<div class="commit"><div><small>Loan EMIs</small><b>'+emis.length+' active · '+fmt(emis.reduce((a,l)=>a+loanStats(l).bal,0))+' outstanding</b></div><div class="num">'+fmt(emis.reduce((a,l)=>a+(Number(l.emi)||0),0))+'/mo</div></div>';
   h+=exampleBar();
@@ -489,14 +539,14 @@ function exampleBar(){const n=S.items.filter(x=>x.example).length;
    '<span class="note">'+(last?"Last file backup "+parse(last).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})+". ":"")+'A backup file is a second, unencrypted copy; keep it private.</span>'}
 
 function txRow(t){const m=catMap[t.cat]||catMap.other;const isInc=t.type==="income";
-  return '<button class="row" data-edit="'+esc(t.id)+'"><span class="ic" style="background:'+m.color+'22;color:'+m.color+'">'+initials(m.name)+'</span><span class="t"><b>'+esc(t.note||m.name)+(t.example?'<span class="tag">example</span>':'')+'</b><small>'+esc(m.name)+' · '+(modeName[t.mode]||t.mode)+'</small></span><span class="amt'+(isInc?" in":"")+'">'+(isInc?"+":"−")+fmt(t.amount)+'</span></button>'}
+  return '<button class="row" data-edit="'+esc(t.id)+'"><span class="ic" style="background:'+m.color+'22;color:'+m.color+'">'+initials(m.name)+'</span><span class="t"><b>'+esc(t.note||m.name)+(t.example?'<span class="tag">example</span>':'')+'</b><small>'+esc(m.name)+' · '+(modeName[t.mode]||t.mode)+(t.mode==="credit"&&t.lender?' · '+esc(t.lender):'')+'</small></span><span class="amt'+(isInc?" in":"")+'">'+(isInc?"+":"−")+fmt(t.amount)+'</span></button>'}
 
 function renderEntries(mt){
   const el=$("v-entries");const q=S.q.trim().toLowerCase();
   const list=mt.filter(t=>(!S.fMode||t.mode===S.fMode)&&(!S.fCat||t.cat===S.fCat)&&(!q||(t.note||"").toLowerCase().includes(q)||(catMap[t.cat]?.name||"").toLowerCase().includes(q)))
     .sort((a,b)=>a.date===b.date?(b.created||0)-(a.created||0):a.date<b.date?1:-1);
   const usedCats=[...new Set(mt.map(t=>t.cat))];
-  let h='<div class="filters"><input id="q" type="search" placeholder="Search notes" value="'+esc(S.q)+'"><select id="fMode"><option value="">All modes</option>'+MODES.map(m=>'<option value="'+m[0]+'"'+(S.fMode===m[0]?" selected":"")+'>'+m[1]+'</option>').join("")+'</select><select id="fCat"><option value="">All categories</option>'+usedCats.map(c=>'<option value="'+c+'"'+(S.fCat===c?" selected":"")+'>'+esc(catMap[c]?.name||c)+'</option>').join("")+'</select></div>';
+  let h='<div class="filters"><input id="q" type="search" placeholder="Search notes" value="'+esc(S.q)+'"><select id="fMode"><option value="">All modes</option>'+MODES_ALL.map(m=>'<option value="'+m[0]+'"'+(S.fMode===m[0]?" selected":"")+'>'+m[1]+'</option>').join("")+'</select><select id="fCat"><option value="">All categories</option>'+usedCats.map(c=>'<option value="'+c+'"'+(S.fCat===c?" selected":"")+'>'+esc(catMap[c]?.name||c)+'</option>').join("")+'</select></div>';
   if(!mt.length){el.innerHTML=emptyState();return}
   if(!list.length){h+='<div class="empty"><b>No matches</b><span>Clear the search or filters to see all entries.</span></div>'}
   const groups={};list.forEach(t=>(groups[t.date]=groups[t.date]||[]).push(t));
@@ -536,20 +586,29 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("sheetHost").inne
 
 function txSheet(t){
   const editing=!!t;t=t||{type:"expense",amount:"",cat:"food",mode:"upi",date:todayIso(),note:""};
-  let type=t.type,cat=t.cat,mode=t.mode;
+  let type=t.type,cat=t.cat,mode=t.mode;let credit=mode==="credit";if(credit)mode="cash";
+  const ls=lenders();
   const catChips=()=>(type==="expense"?EXP_CATS:INC_CATS).map(c=>'<button type="button" class="chip" data-cat="'+c[0]+'" aria-pressed="'+(c[0]===cat)+'">'+c[1]+'</button>').join("");
   openSheet('<form id="txf"><div style="display:flex;flex-direction:column;gap:14px">'+
     '<h3>'+(editing?"Edit entry":"New entry")+'</h3>'+
     '<div class="seg '+(type==="expense"?"exp":"inc")+'" id="typeSeg"><button type="button" data-type="expense" aria-pressed="'+(type==="expense")+'">Expense</button><button type="button" data-type="income" aria-pressed="'+(type==="income")+'">Income</button></div>'+
     '<div class="big-amt"><span>₹</span><input id="amt" inputmode="decimal" placeholder="0" value="'+esc(t.amount)+'" autofocus aria-label="Amount in rupees"></div>'+
     '<div class="field"><label>Category</label><div class="chips" id="catChips">'+catChips()+'</div></div>'+
-    '<div class="field"><label>Paid via</label><div class="chips" id="modeChips">'+MODES.map(m=>'<button type="button" class="chip" data-mode="'+m[0]+'" aria-pressed="'+(m[0]===mode)+'">'+m[1]+'</button>').join("")+'</div></div>'+
+    '<div id="creditBox"'+(type==="expense"?"":" hidden")+'><label class="credit-toggle"><input type="checkbox" id="onCredit"'+(credit?" checked":"")+'><span><b>Bought on credit</b><small>Not paid yet. You\'ll pay the shop later.</small></span></label>'+
+      '<div class="field" id="lenderField"'+(credit?"":" hidden")+' style="margin-top:10px"><label for="lender">Shop / lender</label><input id="lender" list="lenderList" value="'+esc(t.lender||"")+'" placeholder="e.g. Bapi Stores" maxlength="40" autocomplete="off">'+
+      '<datalist id="lenderList">'+ls.map(l=>'<option value="'+esc(l)+'">').join("")+'</datalist>'+
+      (ls.length?'<div class="chips" id="lenderChips">'+ls.slice(0,6).map(l=>'<button type="button" class="chip" data-lender="'+esc(l)+'" aria-pressed="'+((t.lender||"").toLowerCase()===l.toLowerCase())+'">'+esc(l)+'</button>').join("")+'</div>':'')+'</div></div>'+
+    '<div class="field" id="modeField"'+(credit?" hidden":"")+'><label>Paid via</label><div class="chips" id="modeChips">'+MODES.map(m=>'<button type="button" class="chip" data-mode="'+m[0]+'" aria-pressed="'+(m[0]===mode)+'">'+m[1]+'</button>').join("")+'</div></div>'+
     '<div class="grid2"><div class="field"><label for="dt">Date</label><input id="dt" type="date" value="'+esc(t.date)+'"></div><div class="field"><label for="nt">Note</label><input id="nt" placeholder="e.g. Chai with client" value="'+esc(t.note)+'" maxlength="80"></div></div>'+
     '<div class="note" id="txErr" role="alert"></div>'+
     '<div class="sheet-acts">'+(editing?'<button type="button" class="btn danger" id="del">Delete</button>':'')+'<div class="right"><button type="button" class="btn" id="cancel">Cancel</button><button class="btn primary" type="submit">'+(editing?"Save":"Add entry")+'</button></div></div>'+
     '</div></form>',()=>{
       $("cancel").onclick=closeSheet;
-      $("typeSeg").onclick=e=>{const b=e.target.closest("[data-type]");if(!b)return;type=b.dataset.type;cat=type==="expense"?"food":"salary";if(type==="income"&&mode==="upi")mode="bank";
+      const syncCredit=()=>{$("creditBox").hidden=type!=="expense";$("lenderField").hidden=!credit;$("modeField").hidden=credit&&type==="expense"};
+      $("onCredit").onchange=()=>{credit=$("onCredit").checked;syncCredit();if(credit)setTimeout(()=>$("lender").focus(),0)};
+      if($("lenderChips"))$("lenderChips").onclick=e=>{const b=e.target.closest("[data-lender]");if(!b)return;$("lender").value=b.dataset.lender;[...$("lenderChips").children].forEach(x=>x.setAttribute("aria-pressed",x===b))};
+      $("lender").oninput=()=>{const v=$("lender").value.trim().toLowerCase();if($("lenderChips"))[...$("lenderChips").children].forEach(x=>x.setAttribute("aria-pressed",x.dataset.lender.toLowerCase()===v))};
+      $("typeSeg").onclick=e=>{const b=e.target.closest("[data-type]");if(!b)return;type=b.dataset.type;cat=type==="expense"?"food":"salary";if(type==="income"&&mode==="upi")mode="bank";if(type==="income"){credit=false;$("onCredit").checked=false}syncCredit();
         $("typeSeg").className="seg "+(type==="expense"?"exp":"inc");[...$("typeSeg").children].forEach(x=>x.setAttribute("aria-pressed",x.dataset.type===type));$("catChips").innerHTML=catChips();
         [...$("modeChips").children].forEach(x=>x.setAttribute("aria-pressed",x.dataset.mode===mode))};
       $("catChips").onclick=e=>{const b=e.target.closest("[data-cat]");if(!b)return;cat=b.dataset.cat;[...$("catChips").children].forEach(x=>x.setAttribute("aria-pressed",x.dataset.cat===cat))};
@@ -560,8 +619,12 @@ function txSheet(t){
         const amount=Math.round(parseFloat(($("amt").value||"").replace(/[,₹\s]/g,""))*100)/100;
         if(!(amount>0)){$("txErr").textContent="Enter an amount above ₹0.";$("amt").focus();return}
         const date=$("dt").value||todayIso();
-        const doc={kind:"txn",type,amount,cat,mode,date,note:$("nt").value.trim(),created:t.created||Date.now()};
-        if(t.subId)doc.subId=t.subId;if(t.example)doc.example=true;
+        const isCredit=credit&&type==="expense";let lender="";
+        if(isCredit){lender=$("lender").value.trim().replace(/\s+/g," ");if(!lender){$("txErr").textContent="Enter the shop or person you took credit from.";$("lender").focus();return}
+          const known=lenders().find(x=>x.toLowerCase()===lender.toLowerCase());if(known)lender=known}
+        const doc={kind:"txn",type,amount,cat,mode:isCredit?"credit":mode,date,note:$("nt").value.trim(),created:t.created||Date.now()};
+        if(isCredit)doc.lender=lender;
+        if(t.subId)doc.subId=t.subId;if(t.loanId)doc.loanId=t.loanId;if(t.example)doc.example=true;
         try{editing?await store.set(t.id,doc):await store.add(doc);closeSheet();toast(editing?"Saved":"Added "+fmt(amount));
           if(date.slice(0,7)!==monthKey(S.cur)){S.cur=new Date(parse(date).getFullYear(),parse(date).getMonth(),1);render()}}
         catch(err){$("txErr").textContent="Couldn't save ("+(err&&err.code||"error")+"). Try again."}};
@@ -617,7 +680,7 @@ async function addExamples(){const y=S.cur.getFullYear(),m=S.cur.getMonth();cons
 async function clearExamples(){const ex=S.items.filter(x=>x.example);for(const x of ex)await store.del(x.id);toast("Examples cleared")}
 
 async function exportCsv(){
-  const rows=[["Date","Type","Amount","Category","Mode","Note"]].concat(txns().slice().sort((a,b)=>a.date<b.date?-1:1).map(t=>[t.date,t.type,t.amount,catMap[t.cat]?.name||t.cat,modeName[t.mode]||t.mode,t.note||""]));
+  const rows=[["Date","Type","Amount","Category","Mode","Credit from","Note"]].concat(txns().slice().sort((a,b)=>a.date<b.date?-1:1).map(t=>[t.date,t.type,t.amount,catMap[t.cat]?.name||t.cat,modeName[t.mode]||t.mode,t.lender||"",t.note||""]));
   const csv=rows.map(r=>r.map(v=>{v=String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join(",")).join("\n");
   saveFile("kharcha-"+todayIso()+".csv",csv,"text/csv");toast("CSV saved to Downloads")
 }
@@ -791,7 +854,11 @@ $("nextM").onclick=()=>{S.cur=new Date(S.cur.getFullYear(),S.cur.getMonth()+1,1)
 TABS.forEach(t=>$("tab-"+t).onclick=()=>{S.tab=t;render()});
 $("fab").onclick=()=>{if(!store)return;S.tab==="recurring"?subSheet():S.tab==="loans"?loanSheet():txSheet()};
 document.addEventListener("click",e=>{
-  const a=e.target.closest("[data-act],[data-edit],[data-editsub],[data-pay],[data-payloan],[data-editloan]");if(!a||!store)return;
+  const a=e.target.closest("[data-act],[data-edit],[data-editsub],[data-pay],[data-payloan],[data-editloan],[data-credpay],[data-credhist],[data-goto],[data-undosettle]");if(!a||!store)return;
+  if(a.dataset.credpay){settleSheet(a.dataset.credpay);return}
+  if(a.dataset.credhist){creditHistorySheet(a.dataset.credhist);return}
+  if(a.dataset.goto){S.tab=a.dataset.goto;render();window.scrollTo(0,0);return}
+  if(a.dataset.undosettle){if(a.dataset.c!=="1"){a.dataset.c="1";a.textContent="Tap to confirm";return}const x=S.items.find(i=>i.id===a.dataset.undosettle);store.del(a.dataset.undosettle).then(()=>{toast("Payment removed");if(x)creditHistorySheet(x.lender)});return}
   if(a.dataset.payloan){const l=loans().find(x=>x.id===a.dataset.payloan);l&&payLoanSheet(l);return}
   if(a.dataset.editloan){const l=loans().find(x=>x.id===a.dataset.editloan);l&&loanSheet(Object.assign({},l));return}
   if(a.dataset.act==="newloan"){loanSheet();return}
