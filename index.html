@@ -652,7 +652,7 @@ async function decryptFile(obj,pass){const key=await deriveKey(pass,obj.salt,obj
 
 /* Google sign-in: full-page redirect, which works reliably inside an installed Android app */
 function hasToken(){return !!C.token&&C.exp>Date.now()+60000}
-function redirectUri(){let p=location.pathname.replace(/index\.html$/,"");if(!p.endsWith("/"))p+="/";return location.origin+p}
+function redirectUri(){if(location.host==="adscreativespace.github.io")return "https://adscreativespace.github.io/kharcha/";let p=location.pathname.replace(/index\.html$/,"");if(!p.endsWith("/"))p+="/";return location.origin+p}
 function signIn(next){
   if(!GOOGLE_CLIENT_ID){toast("Drive backup isn't configured yet");return}
   if(!navigator.onLine){toast("You're offline. Connect to the internet to use Drive backup.");return}
