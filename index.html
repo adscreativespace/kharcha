@@ -716,7 +716,8 @@ function cloudCard(){
   if(!GOOGLE_CLIENT_ID)return '<div class="commit"><div><small>Google Drive backup</small><b>Waiting for Google setup</b></div></div>';
   if(!C.cfg)return '<div class="commit"><div><small>Google Drive backup · encrypted</small><b>Automatic backup to '+esc(GOOGLE_ACCOUNT)+'</b></div><button class="btn primary" data-act="cloud-setup">Set up</button></div>'+
     '<div class="toolsrow"><button class="btn" data-act="cloud-restore">Restore from Drive</button></div>';
-  if(!C.cfg.connected)return '<div class="commit"><div><small>Google Drive backup</small><b>Passphrase set. Sign in to finish.</b></div><button class="btn primary" data-act="cloud-connect">Connect</button></div>';
+  if(!C.cfg.connected)return '<div class="commit"><div><small>Google Drive backup</small><b>Passphrase set. Sign in to finish.</b></div><button class="btn primary" data-act="cloud-connect">Connect</button></div>'+
+    '<div class="toolsrow"><button class="btn" data-act="cloud-off">Change passphrase</button></div>';
   return '<div class="commit"><div><small>Google Drive backup · encrypted</small><b>Last backup '+ago(C.cfg.last)+(C.cfg.lastCount?" · "+C.cfg.lastCount+" records":"")+'</b></div><button class="btn primary" data-act="cloud-now"'+(C.busy?" disabled":"")+'>Back up now</button></div>'+
     '<div class="toolsrow"><button class="btn" data-act="cloud-restore">Restore from Drive</button><button class="btn danger" data-act="cloud-off">Turn off</button></div>';
 }
@@ -779,7 +780,9 @@ async function cloudRestoreSheet(){
       }catch(x){$("rErr").textContent=x.message;$("rgo").disabled=false;$("rgo").textContent="Open backup"}};
   });
 }
-function cloudOff(btn){if(btn.dataset.c!=="1"){btn.dataset.c="1";btn.textContent="Tap again to turn off";return}
+function cloudOff(btn){const pending=C.cfg&&!C.cfg.connected;
+  if(pending){C.cfg=null;cfgSave();C.err="";render();cloudSetupSheet();return}
+  if(btn.dataset.c!=="1"){btn.dataset.c="1";btn.textContent="Tap again to turn off";return}
   C.cfg=null;cfgSave();C.token=null;C.exp=0;lsSet("kharcha-cloud-token",null);C.err="";C.warn=false;toast("Drive backup turned off. Existing backups stay in Drive.");render()}
 
 /* ---------- events ---------- */
