@@ -156,6 +156,10 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 .sheet-acts{display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap}
 .sheet-acts .right{display:flex;gap:8px;margin-left:auto}
 .note{font-size:12px;color:var(--muted)}
+.cloudbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:12px;background:var(--accent-soft);font-size:14px}
+.cloudbar span{min-width:0}.cloudbar .btn{flex:none}
+.cloudbar.warn{background:var(--warn-soft)}.cloudbar.bad{background:var(--bad-soft)}
+#cloudBar:empty{display:none}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:99px;font-size:14px;font-weight:600;z-index:40}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
 @media (max-width:380px){.spent{font-size:34px}.grid2{grid-template-columns:1fr}}
@@ -184,6 +188,7 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
     </div>
     <div class="budget" id="budgetBox"></div>
     <div class="status" id="status">Loading your ledger…</div>
+    <div id="cloudBar"></div>
   </div>
 
   <div class="tabs" role="tablist">
@@ -253,7 +258,7 @@ let store=null;
 function localStore(){
   const KEY="kharcha-v1";let items=[];
   try{items=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){items=[]}
-  const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(items))}catch(e){}};
+  const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(items))}catch(e){};markDirty()};
   let cb=()=>{};
   return{kind:"local",
     subscribe(f){cb=f;f(items.slice())},
@@ -266,7 +271,7 @@ function attach(st){
   store=st;S.mode=st.kind;
   st.subscribe(items=>{S.items=items;S.ready=true;setStatus("");render();afterChange()});
 }
-function setStatus(msg,err){const el=$("status");el.textContent=msg||"Saved on this phone. Back up regularly from the bottom of Overview.";el.className="status"+(err?" err":"")}
+function setStatus(msg,err){const el=$("status");el.textContent=msg||(C.cfg&&C.cfg.connected?"Saved on this phone · Drive backup "+ago(C.cfg.last):"Saved on this phone only. Turn on Drive backup at the bottom of Overview.");el.className="status"+(err?" err":"")}
 
 /* ---------- reminders ---------- */
 function dueList(days){const t=todayIso();const out=[];
@@ -274,6 +279,7 @@ function dueList(days){const t=todayIso();const out=[];
   loans().forEach(l=>{if(!l.next||loanStats(l).bal<=0)return;const d=daysBetween(t,l.next);if(d<=days)out.push({key:"l:"+l.id+":"+l.next,title:(l.dir==="lent"?"Repayment from ":"EMI · ")+l.name+" "+(d<0?"overdue":d===0?"due today":"due in "+d+"d"),body:(Number(l.emi)?fmt(l.emi)+" · ":"")+"Outstanding "+fmt(loanStats(l).bal),d})});
   return out.sort((a,b)=>a.d-b.d)}
 function afterChange(){
+  cloudOnChange();
   // mirror upcoming dues for the background checker in the service worker
   try{if("caches" in window){const up=[];const t=todayIso();
     subs().forEach(s=>up.push({key:"s:"+s.id+":"+s.next,date:s.next,title:s.name,body:fmt(s.amount)+" · "+cycleName[s.cycle]}));
@@ -312,7 +318,9 @@ function restore(){const inp=document.createElement("input");inp.type="file";inp
     catch(e){toast("That file isn't a Kharcha backup")}};inp.click()}
 
 async function boot(){
+  cfgLoad();const authNext=handleAuthReturn();
   attach(localStore());
+  if(authNext)afterSignIn(authNext);else if(C.err)render();
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
   if("serviceWorker" in navigator){
     navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(reg=>{
@@ -428,6 +436,7 @@ function render(){
   $("budgetBox").innerHTML=b?(()=>{const p=Math.min(100,spent/b*100);const left=b-spent;
     return '<div class="track'+(spent>b?' over':'')+'"><i style="width:'+p.toFixed(1)+'%"></i></div><div class="budget-row"><span>'+(left>=0?fmt(left)+" left of "+fmt(b)+" budget":fmt(-left)+" over "+fmt(b)+" budget")+'</span><button class="linkbtn" data-act="budget">Edit</button></div>'})()
     :'<div class="budget-row"><span>No monthly budget set</span><button class="linkbtn" data-act="budget">Set budget</button></div>';
+  $("cloudBar").innerHTML=cloudBar();if(S.ready)setStatus("");
   TABS.forEach(t=>{$("v-"+t).hidden=S.tab!==t;$("tab-"+t).setAttribute("aria-selected",S.tab===t)});
   if(!S.ready){$("v-overview").innerHTML='<div class="empty"><b>Opening your ledger</b><span>Your entries appear here in a moment.</span></div>';return}
   renderOverview(mt,spent);renderEntries(mt);renderRecurring();renderLoans();
@@ -475,8 +484,9 @@ function exampleBar(){const n=S.items.filter(x=>x.example).length;
   return '<h2>Phone &amp; data</h2>'+
    (S.installEvt?'<div class="commit"><div><small>Install</small><b>Add Kharcha to your home screen</b></div><button class="btn primary" data-act="install">Install</button></div>':'')+
    '<div class="commit"><div><small>Reminders</small><b>'+(alertsOn?"Alerts on for EMIs, recharges and renewals":"Get an alert a day before dues")+'</b></div>'+(alertsOn?'<span class="pill ok">On</span>':'<button class="btn primary" data-act="alerts">Turn on</button>')+'</div>'+
-   '<div class="toolsrow">'+'<button class="btn" data-act="backup">Back up</button><button class="btn" data-act="restore">Restore</button>'+(txns().length?'<button class="btn" data-act="csv">Export CSV</button>':'')+(n?'<button class="btn danger" data-act="clearex">Clear '+n+' examples</button>':'')+'</div>'+
-   '<span class="note">'+(last?"Last backup "+parse(last).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})+". ":"No backup yet. ")+'Data lives only on this phone; keep the backup file in Google Drive.</span>'}
+   cloudCard()+
+   '<div class="toolsrow">'+'<button class="btn" data-act="backup">Save backup file</button><button class="btn" data-act="restore">Restore from file</button>'+(txns().length?'<button class="btn" data-act="csv">Export CSV</button>':'')+(n?'<button class="btn danger" data-act="clearex">Clear '+n+' examples</button>':'')+'</div>'+
+   '<span class="note">'+(last?"Last file backup "+parse(last).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})+". ":"")+'A backup file is a second, unencrypted copy; keep it private.</span>'}
 
 function txRow(t){const m=catMap[t.cat]||catMap.other;const isInc=t.type==="income";
   return '<button class="row" data-edit="'+esc(t.id)+'"><span class="ic" style="background:'+m.color+'22;color:'+m.color+'">'+initials(m.name)+'</span><span class="t"><b>'+esc(t.note||m.name)+(t.example?'<span class="tag">example</span>':'')+'</b><small>'+esc(m.name)+' · '+(modeName[t.mode]||t.mode)+'</small></span><span class="amt'+(isInc?" in":"")+'">'+(isInc?"+":"−")+fmt(t.amount)+'</span></button>'}
@@ -612,6 +622,166 @@ async function exportCsv(){
   saveFile("kharcha-"+todayIso()+".csv",csv,"text/csv");toast("CSV saved to Downloads")
 }
 
+/* ---------- Google Drive backup (encrypted on the phone before upload) ---------- */
+const GOOGLE_CLIENT_ID="";
+const GOOGLE_ACCOUNT="atishdkbasak@gmail.com";
+const DRIVE_SCOPE="https://www.googleapis.com/auth/drive.appdata";
+const MAIN_FILE="kharcha-backup.enc";
+const KDF_ITER=310000;
+const C={cfg:null,token:null,exp:0,busy:false,timer:null,err:"",warn:false,next:null};
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function lsSet(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}}
+function cfgLoad(){try{C.cfg=JSON.parse(lsGet("kharcha-cloud")||"null")}catch(e){C.cfg=null}
+  try{const t=JSON.parse(lsGet("kharcha-cloud-token")||"null");if(t&&t.exp>Date.now()+60000){C.token=t.token;C.exp=t.exp}}catch(e){}}
+function cfgSave(){lsSet("kharcha-cloud",C.cfg?JSON.stringify(C.cfg):null)}
+function dirtyTs(){return Number(lsGet("kharcha-dirty"))||0}
+function markDirty(){lsSet("kharcha-dirty",String(Date.now()))}
+function ago(ts){if(!ts)return "never";const m=Math.round((Date.now()-ts)/60000);if(m<1)return "just now";if(m<60)return m+" min ago";const h=Math.round(m/60);if(h<24)return h+"h ago";const d=Math.round(h/24);return d+(d===1?" day ago":" days ago")}
+const b64=buf=>{let s="";const a=new Uint8Array(buf);for(let i=0;i<a.length;i+=0x8000)s+=String.fromCharCode.apply(null,a.subarray(i,i+0x8000));return btoa(s)};
+const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function deriveKey(pass,saltB64,iter){const base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pass),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2",salt:unb64(saltB64),iterations:iter||KDF_ITER,hash:"SHA-256"},base,{name:"AES-GCM",length:256},true,["encrypt","decrypt"])}
+async function encryptItems(items){const key=await crypto.subtle.importKey("raw",unb64(C.cfg.key),{name:"AES-GCM"},false,["encrypt"]);
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,new TextEncoder().encode(JSON.stringify({app:"kharcha",version:1,items})));
+  return JSON.stringify({app:"kharcha",format:"kharcha-enc-1",kdf:"PBKDF2-SHA256",iter:KDF_ITER,salt:C.cfg.salt,iv:b64(iv),created:new Date().toISOString(),count:items.length,data:b64(ct)})}
+async function decryptFile(obj,pass){const key=await deriveKey(pass,obj.salt,obj.iter);
+  const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(obj.iv)},key,unb64(obj.data));
+  const d=JSON.parse(new TextDecoder().decode(pt));if(!d||!Array.isArray(d.items))throw new Error("bad");
+  return{items:d.items,raw:b64(await crypto.subtle.exportKey("raw",key))}}
+
+/* Google sign-in: full-page redirect, which works reliably inside an installed Android app */
+function hasToken(){return !!C.token&&C.exp>Date.now()+60000}
+function redirectUri(){let p=location.pathname.replace(/index\.html$/,"");if(!p.endsWith("/"))p+="/";return location.origin+p}
+function signIn(next){
+  if(!GOOGLE_CLIENT_ID){toast("Drive backup isn't configured yet");return}
+  if(!navigator.onLine){toast("You're offline. Connect to the internet to use Drive backup.");return}
+  const st=b64(crypto.getRandomValues(new Uint8Array(12))).replace(/[^a-z0-9]/gi,"");
+  lsSet("kharcha-auth",JSON.stringify({state:st,next,at:Date.now()}));
+  const p=new URLSearchParams({client_id:GOOGLE_CLIENT_ID,redirect_uri:redirectUri(),response_type:"token",scope:DRIVE_SCOPE,include_granted_scopes:"true",state:st,login_hint:GOOGLE_ACCOUNT});
+  location.href="https://accounts.google.com/o/oauth2/v2/auth?"+p.toString();
+}
+function handleAuthReturn(){
+  const h=location.hash.slice(1);if(!/(^|&)(access_token|error)=/.test(h))return null;
+  const p=new URLSearchParams(h);let saved=null;try{saved=JSON.parse(lsGet("kharcha-auth")||"null")}catch(e){}
+  lsSet("kharcha-auth",null);history.replaceState(null,"",location.pathname);
+  if(!saved||p.get("state")!==saved.state){C.err="Google sign-in couldn't be verified. Try again.";return null}
+  if(p.get("error")){C.err=p.get("error")==="access_denied"?"Google sign-in was cancelled.":"Google sign-in failed ("+p.get("error")+").";return null}
+  if(!(p.get("scope")||"").includes("drive.appdata")){C.err="Kharcha needs permission for its Drive folder. Tap again and allow access.";return null}
+  C.token=p.get("access_token");C.exp=Date.now()+(Number(p.get("expires_in"))||3600)*1000;
+  lsSet("kharcha-cloud-token",JSON.stringify({token:C.token,exp:C.exp}));
+  return saved.next||null;
+}
+async function gd(url,opt){opt=opt||{};
+  const r=await fetch(url,Object.assign({},opt,{headers:Object.assign({Authorization:"Bearer "+C.token},opt.headers||{})}));
+  if(r.status===401){C.token=null;C.exp=0;lsSet("kharcha-cloud-token",null);const e=new Error("Google sign-in expired. Tap Back up to sign in again.");e.auth=true;throw e}
+  if(!r.ok)throw new Error("Google Drive returned an error ("+r.status+"). Try again later.");
+  return r}
+async function driveList(){const r=await gd("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&orderBy=modifiedTime%20desc&pageSize=100&fields=files(id,name,modifiedTime,size)");
+  return ((await r.json()).files||[]).filter(f=>/^kharcha-.*\.enc$/.test(f.name))}
+async function drivePut(name,body,files){const f=files.find(x=>x.name===name);
+  if(f){await gd("https://www.googleapis.com/upload/drive/v3/files/"+encodeURIComponent(f.id)+"?uploadType=media",{method:"PATCH",headers:{"Content-Type":"application/json"},body});return}
+  const bd="kharcha"+Date.now().toString(36);
+  const mp="--"+bd+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify({name,parents:["appDataFolder"],mimeType:"application/json"})+"\r\n--"+bd+"\r\nContent-Type: application/json\r\n\r\n"+body+"\r\n--"+bd+"--";
+  await gd("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",{method:"POST",headers:{"Content-Type":"multipart/related; boundary="+bd},body:mp})}
+async function driveGet(id){const r=await gd("https://www.googleapis.com/drive/v3/files/"+encodeURIComponent(id)+"?alt=media");return r.json()}
+
+async function cloudBackup(manual){
+  if(!C.cfg||!C.cfg.key||C.busy||!hasToken())return false;
+  const items=S.items.slice();
+  if(!manual&&(C.cfg.lastCount||0)>10&&items.length<C.cfg.lastCount*0.5){C.warn=true;render();return false}
+  C.busy=true;C.err="";render();
+  try{const body=await encryptItems(items);const files=await driveList();
+    await drivePut(MAIN_FILE,body,files);
+    await drivePut("kharcha-"+todayIso().slice(0,7)+".enc",body,files);
+    C.cfg.last=Date.now();C.cfg.lastCount=items.length;C.cfg.connected=true;cfgSave();C.warn=false;return true}
+  catch(e){C.err=e.message||"Backup failed. Try again.";return false}
+  finally{C.busy=false;render()}}
+function cloudOnChange(){if(!C.cfg||!C.cfg.connected)return;clearTimeout(C.timer);
+  C.timer=setTimeout(()=>{if(hasToken()&&dirtyTs()>(C.cfg.last||0))cloudBackup(false)},4000)}
+function cloudDue(){return !!(C.cfg&&C.cfg.connected&&dirtyTs()>(C.cfg.last||0)&&!hasToken()&&Date.now()-(C.cfg.last||0)>20*3600e3)}
+function backupNow(){if(hasToken())cloudBackup(true).then(ok=>ok&&toast("Backed up to Google Drive"));else signIn("backup")}
+
+function cloudBar(){
+  if(!GOOGLE_CLIENT_ID||!S.ready)return "";
+  const bar=(txt,btn,tone)=>'<div class="cloudbar'+(tone?" "+tone:"")+'"><span>'+txt+'</span>'+(btn||"")+'</div>';
+  if(C.busy)return bar("Backing up to Google Drive…");
+  if(C.warn)return bar("Many entries were deleted since the last backup, so automatic backup is paused to protect your Drive copy.",'<button class="btn" data-act="cloud-now">Back up anyway</button>',"warn");
+  if(C.err)return bar(esc(C.err),'<button class="btn" data-act="cloud-now">Try again</button>',"bad");
+  if(cloudDue())return bar("Changes since "+ago(C.cfg.last)+" aren't in Drive yet.",'<button class="btn primary" data-act="cloud-now">Back up</button>');
+  if(!C.cfg&&txns().filter(t=>!t.example).length>=5)return bar("Protect your entries with automatic Google Drive backup.",'<button class="btn primary" data-act="cloud-setup">Set up</button>');
+  return "";
+}
+function cloudCard(){
+  if(!GOOGLE_CLIENT_ID)return '<div class="commit"><div><small>Google Drive backup</small><b>Waiting for Google setup</b></div></div>';
+  if(!C.cfg)return '<div class="commit"><div><small>Google Drive backup · encrypted</small><b>Automatic backup to '+esc(GOOGLE_ACCOUNT)+'</b></div><button class="btn primary" data-act="cloud-setup">Set up</button></div>'+
+    '<div class="toolsrow"><button class="btn" data-act="cloud-restore">Restore from Drive</button></div>';
+  if(!C.cfg.connected)return '<div class="commit"><div><small>Google Drive backup</small><b>Passphrase set. Sign in to finish.</b></div><button class="btn primary" data-act="cloud-connect">Connect</button></div>';
+  return '<div class="commit"><div><small>Google Drive backup · encrypted</small><b>Last backup '+ago(C.cfg.last)+(C.cfg.lastCount?" · "+C.cfg.lastCount+" records":"")+'</b></div><button class="btn primary" data-act="cloud-now"'+(C.busy?" disabled":"")+'>Back up now</button></div>'+
+    '<div class="toolsrow"><button class="btn" data-act="cloud-restore">Restore from Drive</button><button class="btn danger" data-act="cloud-off">Turn off</button></div>';
+}
+
+function cloudSetupSheet(){
+  openSheet('<form id="cs"><div style="display:flex;flex-direction:column;gap:14px"><h3>Google Drive backup</h3>'+
+    '<span class="note">Kharcha encrypts your entries on this phone with your passphrase, then saves them to a hidden Kharcha folder in '+esc(GOOGLE_ACCOUNT)+'\'s Drive. Google can\'t read them. Backups run automatically after changes; at most once a day you may need to tap to sign in again.</span>'+
+    '<div class="field"><label for="cp1">Choose a passphrase</label><input id="cp1" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters"></div>'+
+    '<div class="field"><label for="cp2">Type it again</label><input id="cp2" type="password" autocomplete="new-password"></div>'+
+    '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px"><input type="checkbox" id="cck" style="width:18px;height:18px;flex:none;margin-top:2px"> I\'ve saved this passphrase somewhere safe. If I forget it, my backups can\'t be opened by anyone.</label>'+
+    '<div class="note" id="cErr" role="alert" style="color:var(--bad)"></div>'+
+    '<div class="sheet-acts"><div class="right"><button type="button" class="btn" id="ccl">Cancel</button><button class="btn primary" id="cgo">Continue to Google</button></div></div></div></form>',()=>{
+    $("ccl").onclick=closeSheet;
+    $("cs").onsubmit=async e=>{e.preventDefault();const p1=$("cp1").value,p2=$("cp2").value;const err=t=>{$("cErr").textContent=t};
+      if(p1.length<8)return err("Use at least 8 characters.");
+      if(p1!==p2)return err("The two passphrases don't match.");
+      if(!$("cck").checked)return err("Tick the box once you've saved the passphrase.");
+      $("cgo").disabled=true;$("cgo").textContent="Preparing…";
+      try{const salt=b64(crypto.getRandomValues(new Uint8Array(16)));const key=await deriveKey(p1,salt,KDF_ITER);
+        C.cfg={salt,key:b64(await crypto.subtle.exportKey("raw",key)),last:0,lastCount:0,connected:false};cfgSave();
+        if(hasToken()){closeSheet();afterSignIn("setup")}else signIn("setup")}
+      catch(x){err("This phone's browser couldn't set up encryption.");$("cgo").disabled=false;$("cgo").textContent="Continue to Google"}};
+  });
+}
+async function afterSignIn(next){
+  if(next==="backup"){const ok=await cloudBackup(true);if(ok)toast("Backed up to Google Drive");return}
+  if(next==="restore"){cloudRestoreSheet();return}
+  if(next==="setup"){
+    try{const files=await driveList();const main=files.find(f=>f.name===MAIN_FILE);
+      if(main&&C.cfg&&!C.cfg.connected){
+        openSheet('<div style="display:flex;flex-direction:column;gap:14px"><h3>A backup already exists</h3><span>Drive already has a Kharcha backup from '+new Date(main.modifiedTime).toLocaleString("en-IN",{day:"numeric",month:"short",year:"numeric",hour:"numeric",minute:"2-digit"})+'.</span><span class="note">Restore it to bring those entries to this phone, or replace it with what\'s on this phone now ('+S.items.length+' records). Older monthly copies stay in Drive either way.</span><div class="sheet-acts"><div class="right" style="flex-wrap:wrap"><button class="btn" id="xr">Restore it</button><button class="btn danger" id="xo">Replace with this phone</button></div></div></div>',()=>{
+          $("xr").onclick=()=>{C.cfg=null;cfgSave();closeSheet();cloudRestoreSheet()};
+          $("xo").onclick=async()=>{closeSheet();C.cfg.connected=true;cfgSave();const ok=await cloudBackup(true);toast(ok?"Backup turned on":"Connected. The first backup didn't finish.")}});
+        return}
+      C.cfg.connected=true;cfgSave();const ok=await cloudBackup(true);toast(ok?"Backup turned on":"Connected. The first backup didn't finish.")}
+    catch(e){C.err=e.message;render()}}
+}
+async function cloudRestoreSheet(){
+  if(!hasToken()){signIn("restore");return}
+  let files;try{files=await driveList()}catch(e){toast(e.message);return}
+  if(!files.length){toast("No Kharcha backup found in "+GOOGLE_ACCOUNT+"'s Drive");return}
+  const label=f=>f.name===MAIN_FILE?"Latest backup":"Monthly copy · "+(()=>{const m=f.name.match(/(\d{4})-(\d{2})/);return m?MONTHS[Number(m[2])-1]+" "+m[1]:f.name})();
+  const when=f=>new Date(f.modifiedTime).toLocaleString("en-IN",{day:"numeric",month:"short",year:"numeric",hour:"numeric",minute:"2-digit"});
+  files.sort((a,b)=>a.name===MAIN_FILE?-1:b.name===MAIN_FILE?1:a.modifiedTime<b.modifiedTime?1:-1);
+  openSheet('<form id="rs"><div style="display:flex;flex-direction:column;gap:14px"><h3>Restore from Google Drive</h3>'+
+    '<div class="field"><label>Choose a backup</label><div style="display:flex;flex-direction:column;gap:6px">'+files.map((f,i)=>'<label class="row" style="grid-template-columns:auto minmax(0,1fr);cursor:pointer"><input type="radio" name="rf" value="'+esc(f.id)+'"'+(i?"":" checked")+'><span class="t"><b>'+esc(label(f))+'</b><small>Saved '+esc(when(f))+'</small></span></label>').join("")+'</div></div>'+
+    '<div class="field"><label for="rp">Backup passphrase</label><input id="rp" type="password" autocomplete="current-password"></div>'+
+    '<div class="note" id="rErr" role="alert" style="color:var(--bad)"></div>'+
+    '<div class="sheet-acts"><div class="right"><button type="button" class="btn" id="rcl">Cancel</button><button class="btn primary" id="rgo">Open backup</button></div></div></div></form>',()=>{
+    $("rcl").onclick=closeSheet;
+    $("rs").onsubmit=async e=>{e.preventDefault();const id=($("rs").querySelector("input[name=rf]:checked")||{}).value;const pass=$("rp").value;
+      if(!pass){$("rErr").textContent="Enter the passphrase you chose when you set up backup.";return}
+      $("rgo").disabled=true;$("rgo").textContent="Opening…";
+      try{const obj=await driveGet(id);let res;
+        try{res=await decryptFile(obj,pass)}catch(x){throw new Error("Wrong passphrase, or the backup file is damaged.")}
+        const n=res.items.length;
+        $("rs").innerHTML='<div style="display:flex;flex-direction:column;gap:14px"><h3>Replace entries on this phone?</h3><span>The backup has <b>'+n+'</b> records. This phone has <b>'+S.items.length+'</b>, and they will be replaced.</span><div class="sheet-acts"><div class="right"><button type="button" class="btn" id="rc2">Cancel</button><button type="button" class="btn primary" id="rok">Replace and restore</button></div></div></div>';
+        $("rc2").onclick=closeSheet;
+        $("rok").onclick=()=>{store.replace(res.items);C.cfg={salt:obj.salt,key:res.raw,last:Date.now()+1000,lastCount:n,connected:true};cfgSave();C.err="";C.warn=false;closeSheet();toast("Restored "+n+" records");render()};
+      }catch(x){$("rErr").textContent=x.message;$("rgo").disabled=false;$("rgo").textContent="Open backup"}};
+  });
+}
+function cloudOff(btn){if(btn.dataset.c!=="1"){btn.dataset.c="1";btn.textContent="Tap again to turn off";return}
+  C.cfg=null;cfgSave();C.token=null;C.exp=0;lsSet("kharcha-cloud-token",null);C.err="";C.warn=false;toast("Drive backup turned off. Existing backups stay in Drive.");render()}
+
 /* ---------- events ---------- */
 $("prevM").onclick=()=>{S.cur=new Date(S.cur.getFullYear(),S.cur.getMonth()-1,1);render()};
 $("nextM").onclick=()=>{S.cur=new Date(S.cur.getFullYear(),S.cur.getMonth()+1,1);render()};
@@ -625,7 +795,7 @@ document.addEventListener("click",e=>{
   if(a.dataset.edit){const t=txns().find(x=>x.id===a.dataset.edit);t&&txSheet(Object.assign({},t))}
   else if(a.dataset.editsub){const s=subs().find(x=>x.id===a.dataset.editsub);s&&subSheet(Object.assign({},s))}
   else if(a.dataset.pay){a.disabled=true;markPaid(a.dataset.pay)}
-  else{const k=a.dataset.act;if(k==="budget")budgetSheet();else if(k==="examples"){a.disabled=true;addExamples()}else if(k==="clearex"){a.disabled=true;clearExamples()}else if(k==="newsub")subSheet();else if(k==="csv")exportCsv();else if(k==="backup")backup();else if(k==="restore")restore();else if(k==="alerts")enableAlerts();else if(k==="install"&&S.installEvt){S.installEvt.prompt();S.installEvt.userChoice.finally(()=>{S.installEvt=null;render()})}}
+  else{const k=a.dataset.act;if(k==="budget")budgetSheet();else if(k==="examples"){a.disabled=true;addExamples()}else if(k==="clearex"){a.disabled=true;clearExamples()}else if(k==="newsub")subSheet();else if(k==="csv")exportCsv();else if(k==="backup")backup();else if(k==="restore")restore();else if(k==="alerts")enableAlerts();else if(k==="cloud-setup")cloudSetupSheet();else if(k==="cloud-connect")signIn("setup");else if(k==="cloud-now"){C.warn=false;C.err="";backupNow()}else if(k==="cloud-restore")cloudRestoreSheet();else if(k==="cloud-off")cloudOff(a);else if(k==="install"&&S.installEvt){S.installEvt.prompt();S.installEvt.userChoice.finally(()=>{S.installEvt=null;render()})}}
 });
 boot();
 })();
