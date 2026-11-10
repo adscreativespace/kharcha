@@ -1,5 +1,5 @@
 /* Kharcha service worker: offline app shell + background due-date alerts */
-const VERSION = "kharcha-v10";
+const VERSION = "kharcha-v11";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/badge-96.png"];
 
 self.addEventListener("install", e => {
