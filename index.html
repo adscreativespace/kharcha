@@ -81,7 +81,9 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 .sub-h span{font-size:13px;color:var(--muted)}
 
 .bars{display:flex;flex-direction:column;gap:10px}
-.bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center}
+.bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;width:100%;border:0;background:none;padding:6px 8px;margin:-6px -8px;width:calc(100% + 16px);border-radius:10px;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.bar:hover,.bar:active{background:var(--sunk)}
+.bar .lbl em::after{content:" ›";color:var(--muted)}
 .bar .lbl{display:flex;align-items:center;gap:8px;min-width:0;font-size:14px}
 .bar .lbl em{font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bar .track{grid-column:1/-1;height:6px}
@@ -89,7 +91,8 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 .bar .pct{color:var(--muted);font-size:12px;margin-left:4px}
 
 .modes{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
-.mode{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 12px}
+.mode{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 12px;font:inherit;color:inherit;text-align:left;cursor:pointer;width:100%}
+.mode:hover,.mode:active{border-color:var(--muted)}
 .mode small{color:var(--muted);font-size:12px;display:block}
 
 .daily{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px}
@@ -507,10 +510,10 @@ function renderOverview(mt,spent){
   const byCat={};exp.forEach(t=>byCat[t.cat]=(byCat[t.cat]||0)+t.amount);
   const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);const max=cats[0][1];
   h+='<div class="sub-h"><h2>Where it went</h2><span>'+exp.length+' expenses</span></div><div class="bars">'+cats.map(([c,v])=>{const m=catMap[c]||catMap.other;
-    return '<div class="bar"><div class="lbl"><i class="dot" style="background:'+m.color+'"></i><em>'+esc(m.name)+'</em></div><div class="num">'+fmt(v)+'<span class="pct">'+Math.round(v/spent*100)+'%</span></div><div class="track"><i style="width:'+(v/max*100).toFixed(1)+'%;background:'+m.color+'"></i></div></div>'}).join("")+'</div>';
+    return '<button class="bar" data-fcat="'+esc(c)+'" aria-label="Show '+esc(m.name)+' entries"><div class="lbl"><i class="dot" style="background:'+m.color+'"></i><em>'+esc(m.name)+'</em></div><div class="num">'+fmt(v)+'<span class="pct">'+Math.round(v/spent*100)+'%</span></div><div class="track"><i style="width:'+(v/max*100).toFixed(1)+'%;background:'+m.color+'"></i></div></button>'}).join("")+'</div>';
   // by mode
   const byMode={};exp.forEach(t=>byMode[t.mode]=(byMode[t.mode]||0)+t.amount);
-  h+='<h2>How you paid</h2><div class="modes">'+MODES_ALL.filter(m=>byMode[m[0]]).map(m=>'<div class="mode"><small>'+m[1]+'</small><div class="num">'+fmt(byMode[m[0]])+'</div></div>').join("")+'</div>';
+  h+='<h2>How you paid</h2><div class="modes">'+MODES_ALL.filter(m=>byMode[m[0]]).map(m=>'<button class="mode" data-fmode="'+m[0]+'" aria-label="Show '+m[1]+' entries"><small>'+m[1]+' ›</small><div class="num">'+fmt(byMode[m[0]])+'</div></button>').join("")+'</div>';
   // daily
   const days=new Date(S.cur.getFullYear(),S.cur.getMonth()+1,0).getDate();const per=Array(days).fill(0);
   exp.forEach(t=>{per[Number(t.date.slice(8,10))-1]+=t.amount});const dmax=Math.max(...per,1);
@@ -551,6 +554,7 @@ function renderEntries(mt){
   if(!list.length){h+='<div class="empty"><b>No matches</b><span>Clear the search or filters to see all entries.</span></div>'}
   const groups={};list.forEach(t=>(groups[t.date]=groups[t.date]||[]).push(t));
   const tot=list.reduce((a,t)=>a+(t.type==="expense"?t.amount:0),0);
+  if(S.fMode||S.fCat||S.q)h+='<div class="toolsrow"><button class="btn" data-act="clearfilters">Clear filters · show all</button></div>';
   if(list.length)h+='<div class="note">'+list.length+' entries · '+fmt(tot)+' spent</div>';
   Object.keys(groups).forEach(d=>{const dt=parse(d);const dayExp=groups[d].filter(t=>t.type==="expense").reduce((a,t)=>a+t.amount,0);
     h+='<div class="daygroup"><div class="dayhead"><span>'+dt.toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})+'</span><span class="num">'+(dayExp?fmt(dayExp):"")+'</span></div>'+groups[d].map(txRow).join("")+'</div>'});
@@ -856,7 +860,9 @@ $("nextM").onclick=()=>{S.cur=new Date(S.cur.getFullYear(),S.cur.getMonth()+1,1)
 TABS.forEach(t=>$("tab-"+t).onclick=()=>{S.tab=t;render()});
 $("fab").onclick=()=>{if(!store)return;S.tab==="recurring"?subSheet():S.tab==="loans"?loanSheet():txSheet()};
 document.addEventListener("click",e=>{
-  const a=e.target.closest("[data-act],[data-edit],[data-editsub],[data-pay],[data-payloan],[data-editloan],[data-credpay],[data-credhist],[data-goto],[data-undosettle]");if(!a||!store)return;
+  const a=e.target.closest("[data-act],[data-edit],[data-editsub],[data-pay],[data-payloan],[data-editloan],[data-credpay],[data-credhist],[data-goto],[data-undosettle],[data-fcat],[data-fmode]");if(!a||!store)return;
+  if(a.dataset.fcat||a.dataset.fmode){S.fCat=a.dataset.fcat||"";S.fMode=a.dataset.fmode||"";S.q="";S.tab="entries";render();window.scrollTo(0,0);return}
+  if(a.dataset.act==="clearfilters"){S.fCat="";S.fMode="";S.q="";render();return}
   if(a.dataset.credpay){settleSheet(a.dataset.credpay);return}
   if(a.dataset.credhist){creditHistorySheet(a.dataset.credhist);return}
   if(a.dataset.goto){S.tab=a.dataset.goto;render();window.scrollTo(0,0);return}
