@@ -80,20 +80,22 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 .sub-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .sub-h span{font-size:13px;color:var(--muted)}
 
-.bars{display:flex;flex-direction:column;gap:10px}
-.bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;width:100%;border:0;background:none;padding:6px 8px;margin:-6px -8px;width:calc(100% + 16px);border-radius:10px;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.bars{display:flex;flex-direction:column;gap:0}
+.bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;align-items:center;width:100%;border:0;background:none;padding:5px 8px;margin:0 -8px;width:calc(100% + 16px);border-radius:10px;font:inherit;color:inherit;text-align:left;cursor:pointer}
 .bar:hover,.bar:active{background:var(--sunk)}
 .bar .lbl em::after{content:" ›";color:var(--muted)}
-.bar .lbl{display:flex;align-items:center;gap:8px;min-width:0;font-size:14px}
+.bar .lbl{display:flex;align-items:center;gap:8px;min-width:0;font-size:13.5px}
+.bar .num{font-size:13.5px}
 .bar .lbl em{font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bar .track{grid-column:1/-1;height:6px}
-.dot{width:10px;height:10px;border-radius:3px;flex:none}
-.bar .pct{color:var(--muted);font-size:12px;margin-left:4px}
+.bar .track{grid-column:1/-1;height:4px}
+.dot{width:8px;height:8px;border-radius:2px;flex:none}
+.bar .pct{color:var(--muted);font-size:11px;margin-left:4px;display:inline-block;min-width:30px;text-align:right}
 
-.modes{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
-.mode{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 12px;font:inherit;color:inherit;text-align:left;cursor:pointer;width:100%}
+.modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.mode .num{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mode{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:7px 9px;font:inherit;color:inherit;text-align:left;cursor:pointer;width:100%;min-width:0}
 .mode:hover,.mode:active{border-color:var(--muted)}
-.mode small{color:var(--muted);font-size:12px;display:block}
+.mode small{color:var(--muted);font-size:11px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .daily{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px}
 .daily-cols{display:flex;align-items:flex-end;gap:2px;height:96px}
@@ -509,8 +511,8 @@ function renderOverview(mt,spent){
   // by category
   const byCat={};exp.forEach(t=>byCat[t.cat]=(byCat[t.cat]||0)+t.amount);
   const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);const max=cats[0][1];
-  h+='<div class="sub-h"><h2>Where it went</h2><span>'+exp.length+' expenses</span></div><div class="bars">'+cats.map(([c,v])=>{const m=catMap[c]||catMap.other;
-    return '<button class="bar" data-fcat="'+esc(c)+'" aria-label="Show '+esc(m.name)+' entries"><div class="lbl"><i class="dot" style="background:'+m.color+'"></i><em>'+esc(m.name)+'</em></div><div class="num">'+fmt(v)+'<span class="pct">'+Math.round(v/spent*100)+'%</span></div><div class="track"><i style="width:'+(v/max*100).toFixed(1)+'%;background:'+m.color+'"></i></div></button>'}).join("")+'</div>';
+  h+='<div class="sub-h"><h2>Where it went</h2><span>'+exp.length+' expenses</span></div><div class="bars">'+cats.slice(0,S.allCats?cats.length:6).map(([c,v])=>{const m=catMap[c]||catMap.other;
+    return '<button class="bar" data-fcat="'+esc(c)+'" aria-label="Show '+esc(m.name)+' entries"><div class="lbl"><i class="dot" style="background:'+m.color+'"></i><em>'+esc(m.name)+'</em></div><div class="num">'+fmt(v)+'<span class="pct">'+Math.round(v/spent*100)+'%</span></div><div class="track"><i style="width:'+(v/max*100).toFixed(1)+'%;background:'+m.color+'"></i></div></button>'}).join("")+'</div>'+(cats.length>6?'<button class="linkbtn" data-act="togglecats" style="align-self:flex-start">'+(S.allCats?"Show top 6":"Show all "+cats.length+" categories")+'</button>':'');
   // by mode
   const byMode={};exp.forEach(t=>byMode[t.mode]=(byMode[t.mode]||0)+t.amount);
   h+='<h2>How you paid</h2><div class="modes">'+MODES_ALL.filter(m=>byMode[m[0]]).map(m=>'<button class="mode" data-fmode="'+m[0]+'" aria-label="Show '+m[1]+' entries"><small>'+m[1]+' ›</small><div class="num">'+fmt(byMode[m[0]])+'</div></button>').join("")+'</div>';
@@ -862,6 +864,7 @@ $("fab").onclick=()=>{if(!store)return;S.tab==="recurring"?subSheet():S.tab==="l
 document.addEventListener("click",e=>{
   const a=e.target.closest("[data-act],[data-edit],[data-editsub],[data-pay],[data-payloan],[data-editloan],[data-credpay],[data-credhist],[data-goto],[data-undosettle],[data-fcat],[data-fmode]");if(!a||!store)return;
   if(a.dataset.fcat||a.dataset.fmode){S.fCat=a.dataset.fcat||"";S.fMode=a.dataset.fmode||"";S.q="";S.tab="entries";render();window.scrollTo(0,0);return}
+  if(a.dataset.act==="togglecats"){S.allCats=!S.allCats;render();return}
   if(a.dataset.act==="clearfilters"){S.fCat="";S.fMode="";S.q="";render();return}
   if(a.dataset.credpay){settleSheet(a.dataset.credpay);return}
   if(a.dataset.credhist){creditHistorySheet(a.dataset.credhist);return}
