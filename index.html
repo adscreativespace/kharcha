@@ -220,14 +220,14 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 const EXP_CATS=[
  ["food","Food & Dining","#D9622B"],["smoke","Cigarettes","#8C6D5A"],["groceries","Groceries","#6E9F2D"],["recharge","Mobile Recharge","#2D7FD9"],
  ["internet","DTH / Broadband","#3E5FBF"],["subs","Subscriptions","#8A4FD1"],["utilities","Electricity & Water","#C9A100"],
- ["fuel","Fuel","#B03A48"],["transport","Transport","#1F9C9C"],["rent","Rent","#5A6B78"],["loan","Loan / EMI","#4B5D9A"],
+ ["fuel","Fuel","#B03A48"],["transport","Transport","#1F9C9C"],["rent","Rent","#5A6B78"],["salary_out","Salary paid","#3F7F6A"],["loan","Loan / EMI","#4B5D9A"],
  ["shopping","Shopping","#D14F8A"],["health","Health","#2E9E6A"],["education","Education","#7A6A2E"],
  ["entertain","Entertainment","#A15C2F"],["travel","Travel","#2F7A9E"],["work","Work / Office","#46607A"],
  ["family","Family & Gifts","#B5683C"],["other","Other","#7D8A84"]];
 const INC_CATS=[["salary","Salary","#0E7A5C"],["client","Client payment","#2E8F6A"],["refund","Refund / Cashback","#4E9E86"],["loan_in","Loan repaid to me","#3E7F9E"],["inc_other","Other income","#6D9C8C"]];
 const MODES=[["upi","UPI"],["cash","Cash"],["card","Card"],["bank","Bank / NEFT"],["wallet","Wallet"]];
 const CYCLES=[["m1","Monthly"],["d28","28 days"],["d56","56 days"],["d84","84 days"],["q3","Quarterly"],["y1","Yearly"],["d7","Weekly"]];
-const PRESETS=[["Jio prepaid","recharge","d28"],["Airtel prepaid","recharge","d28"],["Vi prepaid","recharge","d28"],
+const PRESETS=[["Staff salary","salary_out","m1"],["Jio prepaid","recharge","d28"],["Airtel prepaid","recharge","d28"],["Vi prepaid","recharge","d28"],
  ["Broadband","internet","m1"],["DTH","internet","m1"],["Netflix","subs","m1"],["Amazon Prime","subs","y1"],
  ["JioHotstar","subs","q3"],["Spotify","subs","m1"],["YouTube Premium","subs","m1"],["Google One","subs","y1"],
  ["Claude","subs","m1"],["Electricity bill","utilities","m1"],["FASTag","transport","m1"]];
@@ -521,7 +521,7 @@ function renderOverview(mt,spent){
     '</div><div class="daily-axis"><span>1</span><span>'+Math.ceil(days/2)+'</span><span>'+days+'</span></div></div>';
   // commitments
   const sm=subs().reduce((a,s)=>a+perMonth(s),0);
-  if(sm)h+='<div class="commit"><div><small>Recurring commitments</small><b>'+subs().length+' recharges &amp; subscriptions</b></div><div class="num">'+fmt(sm)+'/mo</div></div>';
+  if(sm)h+='<div class="commit"><div><small>Recurring commitments</small><b>'+subs().length+' renewals &amp; salaries</b></div><div class="num">'+fmt(sm)+'/mo</div></div>';
   const cd=creditDue();if(cd){const shops=creditBook().filter(o=>o.due>0);h+='<button class="commit" data-goto="loans" style="border:0;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer"><div><small>Shop credit to pay</small><b>'+shops.map(o=>esc(o.name)).slice(0,3).join(", ")+(shops.length>3?" +"+(shops.length-3):"")+'</b></div><div class="num">'+fmt(cd)+'</div></button>'}
   const emis=loans().filter(l=>l.dir==="borrowed"&&loanStats(l).bal>0);
   if(emis.length)h+='<div class="commit"><div><small>Loan EMIs</small><b>'+emis.length+' active · '+fmt(emis.reduce((a,l)=>a+loanStats(l).bal,0))+' outstanding</b></div><div class="num">'+fmt(emis.reduce((a,l)=>a+(Number(l.emi)||0),0))+'/mo</div></div>';
@@ -568,7 +568,7 @@ function renderRecurring(){
   const el=$("v-recurring");const list=subs();
   const sm=list.reduce((a,s)=>a+perMonth(s),0);
   let h='<div class="commit"><div><small>Monthly equivalent</small><b>'+list.length+' active</b></div><div class="num">'+fmt(sm)+'/mo · '+fmt(sm*12)+'/yr</div></div>';
-  h+='<button class="btn" data-act="newsub">+ Add recharge or subscription</button>';
+  h+='<button class="btn" data-act="newsub">+ Add renewal or salary</button>';
   if(!list.length)h+='<div class="empty"><b>Track renewals before they lapse</b><span>Add prepaid recharges (28 / 84-day packs), broadband, DTH, OTT and software subscriptions. "Mark paid" logs the payment and rolls the due date forward.</span></div>';
   else h+=list.map(subCard).join("");
   el.innerHTML=h;
@@ -633,8 +633,8 @@ function txSheet(t){
 
 function subSheet(s){
   const editing=!!s;s=s||{name:"",amount:"",cycle:"m1",cat:"subs",mode:"upi",next:todayIso()};
-  const recCats=EXP_CATS.filter(c=>["recharge","internet","subs","utilities","rent","education","health","transport","work","other"].includes(c[0]));
-  openSheet('<form id="sf"><div style="display:flex;flex-direction:column;gap:14px"><h3>'+(editing?"Edit recurring payment":"New recharge or subscription")+'</h3>'+
+  const recCats=EXP_CATS.filter(c=>["salary_out","recharge","internet","subs","utilities","rent","education","health","transport","work","other"].includes(c[0]));
+  openSheet('<form id="sf"><div style="display:flex;flex-direction:column;gap:14px"><h3>'+(editing?"Edit recurring payment":"New renewal or salary")+'</h3>'+
     (editing?'':'<div class="field"><label>Quick pick</label><div class="chips" id="presets">'+PRESETS.map((p,i)=>'<button type="button" class="chip" data-p="'+i+'">'+p[0]+'</button>').join("")+'</div><span class="note">Fills the name and cycle. Enter the plan price you actually pay.</span></div>')+
     '<div class="field"><label for="sn">Name</label><input id="sn" value="'+esc(s.name)+'" placeholder="e.g. Jio 2GB/day pack" maxlength="60"></div>'+
     '<div class="grid2"><div class="field"><label for="sa">Amount (₹)</label><input id="sa" inputmode="decimal" value="'+esc(s.amount)+'" placeholder="0"></div>'+
@@ -645,11 +645,13 @@ function subSheet(s){
     '<div class="note" id="sErr" role="alert"></div>'+
     '<div class="sheet-acts">'+(editing?'<button type="button" class="btn danger" id="sdel">Remove</button>':'')+'<div class="right"><button type="button" class="btn" id="scancel">Cancel</button><button class="btn primary" type="submit">'+(editing?"Save":"Add")+'</button></div></div></div></form>',()=>{
       $("scancel").onclick=closeSheet;
-      if(!editing)$("presets").onclick=e=>{const b=e.target.closest("[data-p]");if(!b)return;const p=PRESETS[b.dataset.p];$("sn").value=p[0];$("scat").value=p[1];$("sc").value=p[2];$("sa").focus()};
+      if(!editing)$("presets").onclick=e=>{const b=e.target.closest("[data-p]");if(!b)return;const p=PRESETS[b.dataset.p];$("scat").value=p[1];$("sc").value=p[2];
+        if(p[1]==="salary_out"){const n=$("sn");n.value="Salary · ";n.placeholder="Salary · employee name";n.focus();n.setSelectionRange(n.value.length,n.value.length);$("sErr").textContent="Add the person's name after “Salary ·”, then the monthly amount."}
+        else{$("sn").value=p[0];$("sErr").textContent="";$("sa").focus()}};
       if(editing)$("sdel").onclick=async()=>{const b=$("sdel");if(b.dataset.c!=="1"){b.dataset.c="1";b.textContent="Tap again to remove";return}await store.del(s.id);closeSheet();toast("Removed")};
       $("sf").onsubmit=async e=>{e.preventDefault();
         const amount=Math.round(parseFloat(($("sa").value||"").replace(/[,₹\s]/g,""))*100)/100;const name=$("sn").value.trim();
-        if(!name){$("sErr").textContent="Give it a name, like 'Airtel prepaid'.";return}
+        if(!name||/^Salary ·$/.test(name)){$("sErr").textContent=name?"Add the person's name after “Salary ·”.":"Give it a name, like 'Airtel prepaid'.";return}
         if(!(amount>0)){$("sErr").textContent="Enter the amount you pay each cycle.";return}
         const doc={kind:"sub",name,amount,cycle:$("sc").value,cat:$("scat").value,mode:$("sm").value,next:$("snx").value||todayIso()};if(s.example)doc.example=true;
         try{editing?await store.set(s.id,doc):await store.add(doc);closeSheet();toast(editing?"Saved":"Added "+name)}catch(err){$("sErr").textContent="Couldn't save. Try again."}};
