@@ -170,7 +170,18 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 .credit-toggle b{display:block;font-weight:600}.credit-toggle small{color:var(--muted);font-size:12px}
 #lenderChips{margin-top:8px}
 .danger-link{color:var(--bad)}
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:99px;font-size:14px;font-weight:600;z-index:40}
+.pace{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px 14px;display:grid;gap:10px}
+.pace small{display:block;font-size:12px;color:var(--muted)}
+.pace-top{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+.pace .big{font-size:22px;font-weight:600}
+.pace-side{text-align:right}.pace-side .num{font-size:14px}
+.pace-rows{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+.pace-rows span{display:flex;justify-content:space-between;gap:10px}.pace-rows b{color:var(--fg);font-weight:600}
+.pace-sm{gap:6px;padding:10px 12px}
+.cpace{font-size:11px;color:var(--muted);white-space:nowrap;font-family:var(--mono)}
+.chip.quick{background:var(--accent-soft);border-color:transparent;color:var(--fg);font-weight:600}
+.toast button{background:none;border:0;color:var(--accent-soft);font-weight:700;padding:0 0 0 12px;font-size:14px}
+.toast{display:flex;align-items:center;max-width:calc(100% - 32px);position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:99px;font-size:14px;font-weight:600;z-index:40}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
 @media (max-width:380px){.spent{font-size:34px}.grid2{grid-template-columns:1fr}}
 </style>
@@ -259,7 +270,9 @@ function advance(dateIso,cycle){const d=parse(dateIso);
 function perMonth(s){const a=Number(s.amount)||0;if(s.cycle==="m1")return a;if(s.cycle==="q3")return a/3;if(s.cycle==="y1")return a/12;return a*30.44/(Number(s.cycle.slice(1))||30)}
 const daysBetween=(a,b)=>Math.round((parse(b)-parse(a))/864e5);
 function initials(name){return name.split(/[\s/&]+/).filter(Boolean).slice(0,2).map(w=>w[0]).join("").toUpperCase()}
-function toast(msg){$("toastHost").innerHTML='<div class="toast" role="status">'+esc(msg)+'</div>';clearTimeout(toast.t);toast.t=setTimeout(()=>$("toastHost").innerHTML="",2200)}
+function toast(msg,undo){$("toastHost").innerHTML='<div class="toast" role="status"><span>'+esc(msg)+'</span>'+(undo?'<button type="button" id="toastUndo">Undo</button>':'')+'</div>';
+  if(undo)$("toastUndo").onclick=()=>{$("toastHost").innerHTML="";clearTimeout(toast.t);undo()};
+  clearTimeout(toast.t);toast.t=setTimeout(()=>$("toastHost").innerHTML="",undo?5000:2200)}
 
 /* ---------- state ---------- */
 const S={items:[],cur:new Date(new Date().getFullYear(),new Date().getMonth(),1),tab:"overview",q:"",fMode:"",fCat:"",ready:false,mode:"local"};
@@ -352,6 +365,37 @@ const txns=()=>S.items.filter(x=>x.kind==="txn");
 const subs=()=>S.items.filter(x=>x.kind==="sub").sort((a,b)=>a.next<b.next?-1:1);
 const loans=()=>S.items.filter(x=>x.kind==="loan").sort((a,b)=>(a.next||"9")<(b.next||"9")?-1:1);
 const TABS=["overview","entries","recurring","loans"];
+
+/* ---------- quick add & pace ---------- */
+const FIXED_CATS=new Set(["rent","loan","subs","internet","utilities","salary_out","recharge","education"]);
+function txKey(t){return [t.cat,t.amount,t.mode,(t.lender||"").toLowerCase(),(t.note||"").trim().toLowerCase()].join("|")}
+function frequentItems(){
+  const since=new Date();since.setDate(since.getDate()-60);const lim=iso(since);const g={};
+  txns().forEach(t=>{if(t.type!=="expense"||t.example||t.loanId||t.subId||!t.date||t.date<lim)return;const k=txKey(t);
+    const o=g[k]=g[k]||{t,n:0,last:""};o.n++;if(t.date>o.last||(t.date===o.last&&(t.created||0)>(o.t.created||0))){o.last=t.date;o.t=t}});
+  return Object.values(g).filter(o=>o.n>=2).sort((a,b)=>b.n-a.n||(a.last<b.last?1:-1)).slice(0,5).map(o=>o.t)}
+function quickLabel(t){const m=catMap[t.cat]||catMap.other;return (t.note||m.name)+" · "+fmt(t.amount)+(t.mode==="credit"?" · credit":"")}
+async function addCopy(t,date){
+  const doc={kind:"txn",type:t.type,amount:t.amount,cat:t.cat,mode:t.mode,date:date||todayIso(),note:t.note||"",created:Date.now()};
+  if(t.mode==="credit"&&t.lender)doc.lender=t.lender;
+  await store.add(doc);const id=doc.id;
+  toast("Added "+(t.note||catMap[t.cat]?.name||"")+" "+fmt(t.amount),()=>{if(id)store.del(id).then(()=>toast("Removed"))});
+  if(doc.date.slice(0,7)!==monthKey(S.cur)){S.cur=new Date(parse(doc.date).getFullYear(),parse(doc.date).getMonth(),1);render()}}
+function monthPace(){ // current month only
+  const now=new Date();if(monthKey(S.cur)!==monthKey(now))return null;
+  const days=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),el=now.getDate();
+  const exp=monthTx().filter(t=>t.type==="expense");
+  const fixed=exp.filter(t=>FIXED_CATS.has(t.cat)).reduce((a,t)=>a+t.amount,0);
+  const variable=exp.filter(t=>!FIXED_CATS.has(t.cat)).reduce((a,t)=>a+t.amount,0);
+  const mStart=iso(new Date(now.getFullYear(),now.getMonth(),1)),mEnd=iso(new Date(now.getFullYear(),now.getMonth(),days));
+  let upcoming=0;
+  subs().forEach(s=>{if(s.next>=mStart&&s.next<=mEnd)upcoming+=Number(s.amount)||0});
+  loans().forEach(l=>{if(l.dir!=="lent"&&l.next&&l.next>=mStart&&l.next<=mEnd&&loanStats(l).bal>0)upcoming+=Number(l.emi)||0});
+  const varProj=el?variable/el*days:0;
+  return{el,days,fixed,variable,upcoming,varPerDay:el?variable/el:0,proj:fixed+upcoming+varProj}}
+function catPace(sum){const now=new Date();if(monthKey(S.cur)!==monthKey(now))return null;const el=now.getDate();if(el<5)return null;
+  const days=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();const m=sum/el*days;return{month:m,year:sum/el*365}}
+const fmtK=n=>n>=100000?"₹"+(n/100000).toFixed(n<1000000?1:0).replace(/\.0$/,"")+"L":n>=1000?"₹"+(n/1000).toFixed(n<10000?1:0).replace(/\.0$/,"")+"k":fmt(n);
 
 /* ---------- shop credit (udhaar) ---------- */
 function lenders(){const seen={};const out=[];
@@ -511,8 +555,11 @@ function renderOverview(mt,spent){
   // by category
   const byCat={};exp.forEach(t=>byCat[t.cat]=(byCat[t.cat]||0)+t.amount);
   const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);const max=cats[0][1];
+  const pc=monthPace();
+  if(pc&&pc.el>=3)h+='<div class="pace"><div class="pace-top"><div><small>Month-end estimate</small><div class="num big">≈ '+fmt(Math.round(pc.proj/100)*100)+'</div></div><div class="pace-side"><small>Day '+pc.el+' of '+pc.days+'</small><div class="num">'+fmt(spent)+' so far</div></div></div>'+
+    '<div class="pace-rows"><span>Daily spending pace <b class="num">'+fmt(Math.round(pc.varPerDay))+'/day</b></span><span>Bills, EMIs &amp; salaries paid <b class="num">'+fmt(pc.fixed)+'</b></span>'+(pc.upcoming?'<span>Still due this month <b class="num">'+fmt(pc.upcoming)+'</b></span>':'')+'</div></div>';
   h+='<div class="sub-h"><h2>Where it went</h2><span>'+exp.length+' expenses</span></div><div class="bars">'+cats.slice(0,S.allCats?cats.length:6).map(([c,v])=>{const m=catMap[c]||catMap.other;
-    return '<button class="bar" data-fcat="'+esc(c)+'" aria-label="Show '+esc(m.name)+' entries"><div class="lbl"><i class="dot" style="background:'+m.color+'"></i><em>'+esc(m.name)+'</em></div><div class="num">'+fmt(v)+'<span class="pct">'+Math.round(v/spent*100)+'%</span></div><div class="track"><i style="width:'+(v/max*100).toFixed(1)+'%;background:'+m.color+'"></i></div></button>'}).join("")+'</div>'+(cats.length>6?'<button class="linkbtn" data-act="togglecats" style="align-self:flex-start">'+(S.allCats?"Show top 6":"Show all "+cats.length+" categories")+'</button>':'');
+    return '<button class="bar" data-fcat="'+esc(c)+'" aria-label="Show '+esc(m.name)+' entries"><div class="lbl"><i class="dot" style="background:'+m.color+'"></i><em>'+esc(m.name)+'</em>'+((()=>{const cp=!FIXED_CATS.has(c)&&catPace(v);return cp&&cp.month>v*1.15?'<span class="cpace">→ '+fmtK(cp.month)+'/mo</span>':''})())+'</div><div class="num">'+fmt(v)+'<span class="pct">'+Math.round(v/spent*100)+'%</span></div><div class="track"><i style="width:'+(v/max*100).toFixed(1)+'%;background:'+m.color+'"></i></div></button>'}).join("")+'</div>'+(cats.length>6?'<button class="linkbtn" data-act="togglecats" style="align-self:flex-start">'+(S.allCats?"Show top 6":"Show all "+cats.length+" categories")+'</button>':'');
   // by mode
   const byMode={};exp.forEach(t=>byMode[t.mode]=(byMode[t.mode]||0)+t.amount);
   h+='<h2>How you paid</h2><div class="modes">'+MODES_ALL.filter(m=>byMode[m[0]]).map(m=>'<button class="mode" data-fmode="'+m[0]+'" aria-label="Show '+m[1]+' entries"><small>'+m[1]+' ›</small><div class="num">'+fmt(byMode[m[0]])+'</div></button>').join("")+'</div>';
@@ -556,6 +603,8 @@ function renderEntries(mt){
   if(!list.length){h+='<div class="empty"><b>No matches</b><span>Clear the search or filters to see all entries.</span></div>'}
   const groups={};list.forEach(t=>(groups[t.date]=groups[t.date]||[]).push(t));
   const tot=list.reduce((a,t)=>a+(t.type==="expense"?t.amount:0),0);
+  if(S.fCat&&!S.fMode&&!S.q&&!FIXED_CATS.has(S.fCat)){const sum=mt.filter(t=>t.cat===S.fCat&&t.type==="expense").reduce((a,t)=>a+t.amount,0);const cp=catPace(sum);
+    if(cp&&sum)h+='<div class="pace pace-sm"><small>'+esc(catMap[S.fCat]?.name||"")+' at this pace</small><div class="pace-rows"><span>This month <b class="num">≈ '+fmt(Math.round(cp.month))+'</b></span><span>Over a year <b class="num">≈ '+fmt(Math.round(cp.year/100)*100)+'</b></span></div></div>'}
   if(S.fMode||S.fCat||S.q)h+='<div class="toolsrow"><button class="btn" data-act="clearfilters">Clear filters · show all</button></div>';
   if(list.length)h+='<div class="note">'+list.length+' entries · '+fmt(tot)+' spent</div>';
   Object.keys(groups).forEach(d=>{const dt=parse(d);const dayExp=groups[d].filter(t=>t.type==="expense").reduce((a,t)=>a+t.amount,0);
@@ -592,12 +641,14 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("sheetHost").inne
 
 function txSheet(t){
   const editing=!!t;t=t||{type:"expense",amount:"",cat:"food",mode:"upi",date:todayIso(),note:""};
+  const quick=editing?[]:frequentItems();
   let type=t.type,cat=t.cat,mode=t.mode;let credit=mode==="credit";if(credit)mode="cash";
   const ls=lenders();
   const catChips=()=>(type==="expense"?EXP_CATS:INC_CATS).map(c=>'<button type="button" class="chip" data-cat="'+c[0]+'" aria-pressed="'+(c[0]===cat)+'">'+c[1]+'</button>').join("");
   openSheet('<form id="txf"><div style="display:flex;flex-direction:column;gap:14px">'+
     '<h3>'+(editing?"Edit entry":"New entry")+'</h3>'+
     '<div class="seg '+(type==="expense"?"exp":"inc")+'" id="typeSeg"><button type="button" data-type="expense" aria-pressed="'+(type==="expense")+'">Expense</button><button type="button" data-type="income" aria-pressed="'+(type==="income")+'">Income</button></div>'+
+    (!editing&&quick.length?'<div class="field" id="quickBox"><label>Quick add · one tap</label><div class="chips" id="quickChips">'+quick.map((q,i)=>'<button type="button" class="chip quick" data-q="'+i+'">'+esc(quickLabel(q))+'</button>').join("")+'</div></div>':'')+
     '<div class="big-amt"><span>₹</span><input id="amt" inputmode="decimal" placeholder="0" value="'+esc(t.amount)+'" autofocus aria-label="Amount in rupees"></div>'+
     '<div class="field"><label>Category</label><div class="chips" id="catChips">'+catChips()+'</div></div>'+
     '<div id="creditBox"'+(type==="expense"?"":" hidden")+'><label class="credit-toggle"><input type="checkbox" id="onCredit"'+(credit?" checked":"")+'><span><b>Bought on credit</b><small>Not paid yet. You\'ll pay the shop later.</small></span></label>'+
@@ -607,7 +658,7 @@ function txSheet(t){
     '<div class="field" id="modeField"'+(credit?" hidden":"")+'><label>Paid via</label><div class="chips" id="modeChips">'+MODES.map(m=>'<button type="button" class="chip" data-mode="'+m[0]+'" aria-pressed="'+(m[0]===mode)+'">'+m[1]+'</button>').join("")+'</div></div>'+
     '<div class="grid2"><div class="field"><label for="dt">Date</label><input id="dt" type="date" value="'+esc(t.date)+'"></div><div class="field"><label for="nt">Note</label><input id="nt" placeholder="e.g. Chai with client" value="'+esc(t.note)+'" maxlength="80"></div></div>'+
     '<div class="note" id="txErr" role="alert"></div>'+
-    '<div class="sheet-acts">'+(editing?'<button type="button" class="btn danger" id="del">Delete</button>':'')+'<div class="right"><button type="button" class="btn" id="cancel">Cancel</button><button class="btn primary" type="submit">'+(editing?"Save":"Add entry")+'</button></div></div>'+
+    '<div class="sheet-acts">'+(editing?'<div style="display:flex;gap:8px"><button type="button" class="btn danger" id="del">Delete</button>'+(t.loanId||t.subId?'':'<button type="button" class="btn" id="rep">Repeat today</button>')+'</div>':'')+'<div class="right"><button type="button" class="btn" id="cancel">Cancel</button><button class="btn primary" type="submit">'+(editing?"Save":"Add entry")+'</button></div></div>'+
     '</div></form>',()=>{
       $("cancel").onclick=closeSheet;
       const syncCredit=()=>{$("creditBox").hidden=type!=="expense";$("lenderField").hidden=!credit;$("modeField").hidden=credit&&type==="expense"};
@@ -619,12 +670,15 @@ function txSheet(t){
         [...$("modeChips").children].forEach(x=>x.setAttribute("aria-pressed",x.dataset.mode===mode))};
       $("catChips").onclick=e=>{const b=e.target.closest("[data-cat]");if(!b)return;cat=b.dataset.cat;[...$("catChips").children].forEach(x=>x.setAttribute("aria-pressed",x.dataset.cat===cat))};
       $("modeChips").onclick=e=>{const b=e.target.closest("[data-mode]");if(!b)return;mode=b.dataset.mode;[...$("modeChips").children].forEach(x=>x.setAttribute("aria-pressed",x.dataset.mode===mode))};
+      if(quick.length)$("quickChips").onclick=e=>{const b=e.target.closest("[data-q]");if(!b)return;b.disabled=true;closeSheet();addCopy(quick[Number(b.dataset.q)])};
+      if(editing&&$("rep"))$("rep").onclick=()=>{closeSheet();addCopy(t)};
       if(editing)$("del").onclick=async()=>{const b=$("del");if(b.dataset.c!=="1"){b.dataset.c="1";b.textContent="Tap again to delete";return}
         await store.del(t.id);closeSheet();toast("Entry deleted")};
       $("txf").onsubmit=async e=>{e.preventDefault();
         const amount=Math.round(parseFloat(($("amt").value||"").replace(/[,₹\s]/g,""))*100)/100;
         if(!(amount>0)){$("txErr").textContent="Enter an amount above ₹0.";$("amt").focus();return}
         const date=$("dt").value||todayIso();
+        if(type==="expense"&&cat==="other"&&!$("nt").value.trim()){$("txErr").textContent="Add a note for Other, so you know later what it was. Or pick a closer category.";$("nt").focus();return}
         const isCredit=credit&&type==="expense";let lender="";
         if(isCredit){lender=$("lender").value.trim().replace(/\s+/g," ");if(!lender){$("txErr").textContent="Enter the shop or person you took credit from.";$("lender").focus();return}
           const known=lenders().find(x=>x.toLowerCase()===lender.toLowerCase());if(known)lender=known}
