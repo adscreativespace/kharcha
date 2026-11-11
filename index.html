@@ -269,7 +269,7 @@ const EXP_CATS=[
 const INC_CATS=[["salary","Salary","#0E7A5C"],["client","Client payment","#2E8F6A"],["refund","Refund / Cashback","#4E9E86"],["loan_in","Loan repaid to me","#3E7F9E"],["inc_other","Other income","#6D9C8C"]];
 const MODES=[["upi","UPI"],["cash","Cash"],["card","Card"],["bank","Bank / NEFT"],["wallet","Wallet"]];
 const CYCLES=[["m1","Monthly"],["d28","28 days"],["d56","56 days"],["d84","84 days"],["q3","Quarterly"],["y1","Yearly"],["d7","Weekly"]];
-const PRESETS=[["Staff salary","salary_out","m1"],["Jio prepaid","recharge","d28"],["Airtel prepaid","recharge","d28"],["Vi prepaid","recharge","d28"],
+const PRESETS=[["Staff salary","salary_out","m1"],["Office maintenance","work","m1",1],["Jio prepaid","recharge","d28"],["Airtel prepaid","recharge","d28"],["Vi prepaid","recharge","d28"],
  ["Broadband","internet","m1"],["DTH","internet","m1"],["Netflix","subs","m1"],["Amazon Prime","subs","y1"],
  ["JioHotstar","subs","q3"],["Spotify","subs","m1"],["YouTube Premium","subs","m1"],["Google One","subs","y1"],
  ["Claude","subs","m1"],["Electricity bill","utilities","m1"],["FASTag","transport","m1"]];
@@ -603,7 +603,7 @@ function renderOverview(mt,spent){
   { const rows=[];const sm=subs().reduce((a,x)=>a+perMonth(x),0);
     const salL=subs().filter(x=>x.cat==="salary_out"),renL=subs().filter(x=>x.cat!=="salary_out");
     if(salL.length)rows.push('<button class="crow" data-goto="recurring"><span>Salaries <small>'+salL.map(x=>esc(x.name)).slice(0,3).join(", ")+(salL.length>3?" +"+(salL.length-3):"")+'</small></span><b class="num">'+fmt(Math.round(salL.reduce((a,x)=>a+perMonth(x),0)))+'/mo</b></button>');
-    if(renL.length)rows.push('<button class="crow" data-goto="recurring"><span>Subscriptions &amp; recharges <small>'+renL.length+' active · avg</small></span><b class="num">'+fmt(Math.round(renL.reduce((a,x)=>a+perMonth(x),0)))+'/mo</b></button>');
+    if(renL.length)rows.push('<button class="crow" data-goto="recurring"><span>Bills &amp; subscriptions <small>'+renL.length+' active · avg</small></span><b class="num">'+fmt(Math.round(renL.reduce((a,x)=>a+perMonth(x),0)))+'/mo</b></button>');
     const emis=loans().filter(l=>l.dir==="borrowed"&&loanStats(l).bal>0);
     if(emis.length)rows.push('<button class="crow" data-goto="loans"><span>Loan EMIs <small>'+fmt(emis.reduce((a,l)=>a+loanStats(l).bal,0))+' outstanding</small></span><b class="num">'+fmt(emis.reduce((a,l)=>a+(Number(l.emi)||0),0))+'/mo</b></button>');
     const cd=creditDue();if(cd){const shops=creditBook().filter(o=>o.due>0);rows.push('<button class="crow" data-goto="loans"><span>Shop credit to pay <small>'+shops.map(o=>esc(o.name)).slice(0,2).join(", ")+(shops.length>2?" +"+(shops.length-2):"")+'</small></span><b class="num">'+fmt(cd)+'</b></button>')}
@@ -655,7 +655,7 @@ function renderEntries(mt){
 
 function subCard(s){const m=catMap[s.cat]||catMap.other;const dl=daysBetween(todayIso(),s.next);
   const pill=dl<0?'<span class="pill due">Overdue by '+(-dl)+'d</span>':dl===0?'<span class="pill due">Due today</span>':dl<=5?'<span class="pill soon">Due in '+dl+'d</span>':'<span class="pill ok">'+parse(s.next).toLocaleDateString("en-IN",{day:"numeric",month:"short"})+'</span>';
-  return '<div class="sub"><div class="t"><b>'+esc(s.name)+(s.example?'<span class="tag">example</span>':'')+'</b><small>'+fmt(s.amount)+' · '+cycleName[s.cycle]+' · '+esc(m.name)+' · '+(modeName[s.mode]||"")+'</small>'+pill+'</div><div class="acts"><button class="btn primary" data-pay="'+esc(s.id)+'">Mark paid</button><span class="toolsrow" style="gap:12px"><a class="linkbtn" target="_blank" rel="noopener" href="'+esc(calLink(s.name+" · "+fmt(s.amount),s.next,s.cycle,"Renewal: "+s.name+"\nAmount: "+fmt(s.amount)+"\nCycle: "+cycleName[s.cycle]))+'">Calendar</a><button class="linkbtn" data-editsub="'+esc(s.id)+'">Edit</button></span></div></div>'}
+  return '<div class="sub"><div class="t"><b>'+esc(s.name)+(s.example?'<span class="tag">example</span>':'')+'</b><small>'+(s.varies?'Varies · last '+fmt(s.amount):fmt(s.amount))+' · '+cycleName[s.cycle]+' · '+esc(m.name)+' · '+(modeName[s.mode]||"")+'</small>'+pill+'</div><div class="acts"><button class="btn primary" data-pay="'+esc(s.id)+'">Mark paid</button><span class="toolsrow" style="gap:12px"><a class="linkbtn" target="_blank" rel="noopener" href="'+esc(calLink(s.name+" · "+fmt(s.amount),s.next,s.cycle,"Renewal: "+s.name+"\nAmount: "+fmt(s.amount)+"\nCycle: "+cycleName[s.cycle]))+'">Calendar</a><button class="linkbtn" data-editsub="'+esc(s.id)+'">Edit</button></span></div></div>'}
 
 function renderRecurring(){
   const el=$("v-recurring");const list=subs();
@@ -663,10 +663,10 @@ function renderRecurring(){
   const pm=a=>Math.round(a.reduce((t,x)=>t+perMonth(x),0));
   let h='<div class="commits"><small class="clabel">Every month</small>'+
     (sal.length?'<div class="crow"><span>Salaries <small>'+sal.length+' '+(sal.length===1?"person":"people")+'</small></span><b class="num">'+fmt(pm(sal))+'/mo</b></div>':'')+
-    (ren.length?'<div class="crow"><span>Subscriptions &amp; recharges <small>'+ren.length+' active · avg per month</small></span><b class="num">'+fmt(pm(ren))+'/mo</b></div>':'')+
+    (ren.length?'<div class="crow"><span>Bills, subscriptions &amp; recharges <small>'+ren.length+' active · avg per month</small></span><b class="num">'+fmt(pm(ren))+'/mo</b></div>':'')+
     '<div class="crow"><span>Total <small>'+fmt(pm(list)*12)+' a year</small></span><b class="num">'+fmt(pm(list))+'/mo</b></div></div>';
   h+='<button class="btn" data-act="newsub">+ Add renewal or salary</button>';
-  if(list.length){if(sal.length)h+='<h2>Salaries</h2>'+sal.map(subCard).join("");if(ren.length)h+='<h2>Subscriptions &amp; recharges</h2>'+ren.map(subCard).join("")}
+  if(list.length){if(sal.length)h+='<h2>Salaries</h2>'+sal.map(subCard).join("");if(ren.length)h+='<h2>Other monthly payments</h2>'+ren.map(subCard).join("")}
   if(!list.length)h+='<div class="empty"><b>Track renewals before they lapse</b><span>Add prepaid recharges (28 / 84-day packs), broadband, DTH, OTT and software subscriptions. "Mark paid" logs the payment and rolls the due date forward.</span></div>';
   el.innerHTML=h;
 }
@@ -769,18 +769,19 @@ function subSheet(s){
     '<div class="grid2"><div class="field"><label for="scat">Category</label><select id="scat">'+recCats.map(c=>'<option value="'+c[0]+'"'+(c[0]===s.cat?" selected":"")+'>'+c[1]+'</option>').join("")+'</select></div>'+
     '<div class="field"><label for="sm">Paid via</label><select id="sm">'+MODES.map(m=>'<option value="'+m[0]+'"'+(m[0]===s.mode?" selected":"")+'>'+m[1]+'</option>').join("")+'</select></div></div>'+
     '<div class="field"><label for="snx">Next due date</label><input id="snx" type="date" value="'+esc(s.next)+'"></div>'+
+    '<label class="credit-toggle"><input type="checkbox" id="svar"'+(s.varies?" checked":"")+'><span><b>Amount changes every month</b><small>Mark paid will ask how much you paid. The amount above is used as the estimate.</small></span></label>'+
     '<div class="note" id="sErr" role="alert"></div>'+
     '<div class="sheet-acts">'+(editing?'<button type="button" class="btn danger" id="sdel">Remove</button>':'')+'<div class="right"><button type="button" class="btn" id="scancel">Cancel</button><button class="btn primary" type="submit">'+(editing?"Save":"Add")+'</button></div></div></div></form>',()=>{
       $("scancel").onclick=closeSheet;
       if(!editing)$("presets").onclick=e=>{const b=e.target.closest("[data-p]");if(!b)return;const p=PRESETS[b.dataset.p];$("scat").value=p[1];$("sc").value=p[2];
-        if(p[1]==="salary_out"){const n=$("sn");n.value="Salary · ";n.placeholder="Salary · employee name";n.focus();n.setSelectionRange(n.value.length,n.value.length);$("sErr").textContent="Add the person's name after “Salary ·”, then the monthly amount."}
+        $("svar").checked=!!p[3];if(p[1]==="salary_out"){const n=$("sn");n.value="Salary · ";n.placeholder="Salary · employee name";n.focus();n.setSelectionRange(n.value.length,n.value.length);$("sErr").textContent="Add the person's name after “Salary ·”, then the monthly amount."}
         else{$("sn").value=p[0];$("sErr").textContent="";$("sa").focus()}};
       if(editing)$("sdel").onclick=async()=>{const b=$("sdel");if(b.dataset.c!=="1"){b.dataset.c="1";b.textContent="Tap again to remove";return}await store.del(s.id);closeSheet();toast("Removed")};
       $("sf").onsubmit=async e=>{e.preventDefault();
         const amount=Math.round(parseFloat(($("sa").value||"").replace(/[,₹\s]/g,""))*100)/100;const name=$("sn").value.trim();
         if(!name||/^Salary ·$/.test(name)){$("sErr").textContent=name?"Add the person's name after “Salary ·”.":"Give it a name, like 'Airtel prepaid'.";return}
         if(!(amount>0)){$("sErr").textContent="Enter the amount you pay each cycle.";return}
-        const doc={kind:"sub",name,amount,cycle:$("sc").value,cat:$("scat").value,mode:$("sm").value,next:$("snx").value||todayIso()};if(s.example)doc.example=true;
+        const doc={kind:"sub",name,amount,cycle:$("sc").value,cat:$("scat").value,mode:$("sm").value,next:$("snx").value||todayIso()};if(s.example)doc.example=true;if($("svar").checked)doc.varies=true;
         try{editing?await store.set(s.id,doc):await store.add(doc);closeSheet();toast(editing?"Saved":"Added "+name)}catch(err){$("sErr").textContent="Couldn't save. Try again."}};
     });
 }
@@ -792,7 +793,24 @@ function budgetSheet(){const st=settings();
       await store.set(st.id||"settings",{kind:"settings",budget:v});closeSheet();toast(v?"Budget set to "+fmt(v):"Budget removed")}});
 }
 
+function payVariableSheet(s){
+  openSheet('<form id="pv"><div style="display:flex;flex-direction:column;gap:14px"><h3>'+esc(s.name)+'</h3>'+
+    '<span class="note">How much did you pay this time? Last time: '+fmt(s.amount)+'.</span>'+
+    '<div class="big-amt"><span>₹</span><input id="pva" inputmode="decimal" value="'+s.amount+'" autofocus aria-label="Amount paid"></div>'+
+    '<div class="row3"><div class="field"><label for="pvd">Date</label><input id="pvd" type="date" value="'+todayIso()+'"></div><div class="field"><label for="pvm">Paid via</label><select id="pvm">'+MODES.map(m=>'<option value="'+m[0]+'"'+(m[0]===s.mode?" selected":"")+'>'+m[1]+'</option>').join("")+'</select></div><div class="field"><label for="pvn">Note</label><input id="pvn" placeholder="e.g. lift repair" maxlength="60"></div></div>'+
+    '<div class="note" id="pvErr" role="alert" style="color:var(--bad)"></div>'+
+    '<div class="sheet-acts"><div class="right"><button type="button" class="btn" id="pvc">Cancel</button><button class="btn primary">Save &amp; move to next month</button></div></div></div></form>',()=>{
+    $("pvc").onclick=closeSheet;
+    $("pv").onsubmit=async e=>{e.preventDefault();const amount=Math.round(parseFloat(($("pva").value||"").replace(/[,₹\s]/g,""))*100)/100;
+      if(!(amount>0))return $("pvErr").textContent="Enter the amount you paid.";
+      const extra=$("pvn").value.trim();
+      await store.add({kind:"txn",type:"expense",amount,cat:s.cat,mode:$("pvm").value,date:$("pvd").value||todayIso(),note:s.name+(extra?" · "+extra:""),subId:s.id,slot:currentSlot(),created:Date.now()});
+      const ns=Object.assign({},s,{amount,next:advance(s.next,s.cycle)});await store.set(s.id,ns);
+      closeSheet();toast("Logged "+fmt(amount)+" · next due "+parse(ns.next).toLocaleDateString("en-IN",{day:"numeric",month:"short"}))};
+  });
+}
 async function markPaid(id){const s=subs().find(x=>x.id===id);if(!s)return;
+  if(s.varies){payVariableSheet(s);return}
   const doc={kind:"txn",type:"expense",amount:s.amount,cat:s.cat,mode:s.mode,date:todayIso(),note:s.name,subId:s.id,created:Date.now()};if(s.example)doc.example=true;
   await store.add(doc);const ns=Object.assign({},s,{next:advance(s.next,s.cycle)});await store.set(s.id,ns);
   toast("Logged "+fmt(s.amount)+" · next due "+parse(ns.next).toLocaleDateString("en-IN",{day:"numeric",month:"short"}))}
@@ -999,7 +1017,7 @@ document.addEventListener("click",e=>{
   if(a.dataset.act==="newloan"){loanSheet();return}
   if(a.dataset.edit){const t=txns().find(x=>x.id===a.dataset.edit);t&&txSheet(Object.assign({},t))}
   else if(a.dataset.editsub){const s=subs().find(x=>x.id===a.dataset.editsub);s&&subSheet(Object.assign({},s))}
-  else if(a.dataset.pay){a.disabled=true;markPaid(a.dataset.pay)}
+  else if(a.dataset.pay){const sx=subs().find(x=>x.id===a.dataset.pay);if(!(sx&&sx.varies))a.disabled=true;markPaid(a.dataset.pay)}
   else{const k=a.dataset.act;if(k==="budget")budgetSheet();else if(k==="examples"){a.disabled=true;addExamples()}else if(k==="clearex"){a.disabled=true;clearExamples()}else if(k==="newsub")subSheet();else if(k==="csv")exportCsv();else if(k==="backup")backup();else if(k==="restore")restore();else if(k==="alerts")enableAlerts();else if(k==="cloud-setup")cloudSetupSheet();else if(k==="cloud-connect")signIn("setup");else if(k==="cloud-now"){C.warn=false;C.err="";backupNow()}else if(k==="cloud-restore")cloudRestoreSheet();else if(k==="cloud-off")cloudOff(a);else if(k==="install"&&S.installEvt){S.installEvt.prompt();S.installEvt.userChoice.finally(()=>{S.installEvt=null;render()})}}
 });
 boot();
