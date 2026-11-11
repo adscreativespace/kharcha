@@ -194,6 +194,9 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 .trio.duo{grid-template-columns:repeat(2,1fr)}
 .commit .btn,.cloudbar .btn{white-space:nowrap}
 .mkrec{border:1px dashed var(--accent);background:var(--accent-soft);color:var(--fg);border-radius:10px;padding:11px 12px;font:inherit;font-weight:600;font-size:14px;text-align:left;cursor:pointer}
+#splitLine{display:flex;gap:14px;flex-wrap:wrap;margin-top:4px}
+.split{font-size:13px;color:var(--muted);border:0;background:none;padding:0;font:inherit;font-size:13px}.split b{color:var(--fg);font-weight:600}
+.split-b{cursor:pointer;color:var(--muted)}.split-b:hover b{color:var(--accent)}
 .pace{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px 14px;display:grid;gap:10px}
 .pace small{display:block;font-size:12px;color:var(--muted)}
 .pace-top{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
@@ -228,6 +231,7 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
     <div>
       <div class="spent-label">Spent this month</div>
       <div class="spent" id="spent">₹0</div>
+      <div id="splitLine"></div>
     </div>
     <div class="trio duo">
       <div><small>Income</small><div class="num" id="income">₹0</div></div>
@@ -264,7 +268,7 @@ const EXP_CATS=[
  ["internet","DTH / Broadband","#3E5FBF"],["subs","Subscriptions","#8A4FD1"],["utilities","Electricity & Water","#C9A100"],
  ["fuel","Fuel","#B03A48"],["transport","Transport","#1F9C9C"],["tip","Driver tip","#2B8C8C"],["rent","Rent","#5A6B78"],["salary_out","Salary paid","#3F7F6A"],["loan","Loan / EMI","#4B5D9A"],
  ["shopping","Shopping","#D14F8A"],["health","Health","#2E9E6A"],["education","Education","#7A6A2E"],
- ["entertain","Entertainment","#A15C2F"],["travel","Travel","#2F7A9E"],["work","Work / Office","#46607A"],
+ ["entertain","Entertainment","#A15C2F"],["travel","Travel","#2F7A9E"],["work","Office / Business","#46607A"],
  ["family","Family & Gifts","#B5683C"],["other","Other","#7D8A84"]];
 const INC_CATS=[["salary","Salary","#0E7A5C"],["client","Client payment","#2E8F6A"],["refund","Refund / Cashback","#4E9E86"],["loan_in","Loan repaid to me","#3E7F9E"],["inc_other","Other income","#6D9C8C"]];
 const MODES=[["upi","UPI"],["cash","Cash"],["card","Card"],["bank","Bank / NEFT"],["wallet","Wallet"]];
@@ -560,6 +564,8 @@ function render(){
   const inc=mt.filter(t=>t.type==="income").reduce((a,t)=>a+t.amount,0);
   const cash=mt.filter(t=>t.type==="expense"&&t.mode==="cash").reduce((a,t)=>a+t.amount,0);
   $("spent").textContent=fmt(spent);$("income").textContent=fmt(inc);
+  { const off=mt.filter(t=>t.type==="expense"&&t.cat==="work").reduce((a,t)=>a+t.amount,0);
+    $("splitLine").innerHTML=off?'<span class="split">Personal <b class="num">'+fmt(spent-off)+'</b></span><button class="split split-b" data-fcat="work">Office <b class="num">'+fmt(off)+'</b> ›</button>':''}
   $("net").textContent=(inc-spent<0?"−":"")+fmt(Math.abs(inc-spent));$("net").style.color=inc-spent<0?"var(--bad)":"var(--good)";
   const b=Number(settings().budget)||0;
   $("budgetBox").innerHTML=b?(()=>{const p=Math.min(100,spent/b*100);const left=b-spent;
