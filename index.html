@@ -708,6 +708,7 @@ function txSheet(t){
     if(allCatsShown)return all.map(chip).join("")+'<button type="button" class="chip more" data-morecats="0">Less ▴</button>';
     const cnt={};txns().forEach(x=>{if(x.type==="expense"&&!x.example)cnt[x.cat]=(cnt[x.cat]||0)+1});
     let top=all.slice().sort((a,b)=>(cnt[b[0]]||0)-(cnt[a[0]]||0)).slice(0,8);
+    if(!top.some(c=>c[0]==="work")){top=top.slice(0,7).concat([all.find(c=>c[0]==="work")])}
     if(!top.some(c=>c[0]===cat)){const sel=all.find(c=>c[0]===cat);if(sel)top=top.slice(0,7).concat([sel])}
     return top.map(chip).join("")+'<button type="button" class="chip more" data-morecats="1">More ▾</button>'};
   openSheet('<form id="txf"><div style="display:flex;flex-direction:column;gap:14px">'+
