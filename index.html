@@ -142,7 +142,8 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 .scrim{position:fixed;inset:0;background:rgba(10,15,13,.45);z-index:30;display:flex;align-items:flex-end;justify-content:center}
 .sheet{background:var(--surface);width:100%;max-width:560px;border-radius:18px 18px 0 0;max-height:92%;overflow:auto;
   padding:18px max(18px,env(safe-area-inset-right,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px}
-.sheet h3{font-family:var(--display);margin:0;font-size:20px}
+.sheet h3{font-family:var(--display);margin:0;font-size:20px;padding-right:48px}
+.sheet-x{position:sticky;top:0;align-self:flex-end;margin-bottom:-50px;z-index:3;width:40px;height:40px;flex:none;border-radius:50%;border:1px solid var(--line);background:var(--sunk);color:var(--fg);font-size:22px;line-height:1;display:grid;place-items:center}
 .seg{display:flex;background:var(--sunk);border-radius:10px;padding:3px;gap:3px}
 .seg button{flex:1;border:0;background:none;padding:8px;border-radius:8px;font-weight:600;font-size:14px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg)}
@@ -653,10 +654,19 @@ function renderRecurring(){
 }
 
 /* ---------- sheets ---------- */
-function closeSheet(){$("sheetHost").innerHTML="";$("fab").focus()}
+/* Android back button: closes an open sheet, then returns to Overview, then exits */
+const NAV={guard:false};
+function ensureGuard(){if(!NAV.guard){try{history.pushState({kharcha:1},"")}catch(e){}NAV.guard=true}}
+window.addEventListener("popstate",()=>{NAV.guard=false;
+  if($("sheetHost").innerHTML){closeSheet();if(S.tab!=="overview")ensureGuard();return}
+  if(S.tab!=="overview"){S.tab="overview";render();window.scrollTo(0,0);return}
+  history.back()});
+function closeSheet(){if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();$("sheetHost").innerHTML="";}
 function openSheet(html,onMount){
-  $("sheetHost").innerHTML='<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true">'+html+'</div></div>';
+  ensureGuard();
+  $("sheetHost").innerHTML='<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true"><button type="button" class="sheet-x" id="sheetX" aria-label="Close">×</button>'+html+'</div></div>';
   $("scrim").addEventListener("click",e=>{if(e.target.id==="scrim")closeSheet()});
+  $("sheetX").onclick=closeSheet;
   onMount&&onMount();
   const f=$("sheetHost").querySelector("[autofocus]");f&&f.focus();
 }
@@ -671,7 +681,7 @@ function txSheet(t){
   openSheet('<form id="txf"><div style="display:flex;flex-direction:column;gap:14px">'+
     '<h3>'+(editing?"Edit entry":"New entry")+'</h3>'+
     '<div class="seg '+(type==="expense"?"exp":"inc")+'" id="typeSeg"><button type="button" data-type="expense" aria-pressed="'+(type==="expense")+'">Expense</button><button type="button" data-type="income" aria-pressed="'+(type==="income")+'">Income</button></div>'+
-    (!editing&&quick.length?'<div class="field" id="quickBox"><label>Quick add · one tap</label><div class="chips" id="quickChips">'+quick.map((q,i)=>'<button type="button" class="chip quick" data-q="'+i+'">'+esc(quickLabel(q))+'</button>').join("")+'</div></div>':'')+
+    (!editing&&quick.length?'<div class="field" id="quickBox"><label>Quick add · one tap</label><div class="chips" id="quickChips">'+quick.map((q,i)=>{let l=quickLabel(q);if(quick.some((o,j)=>j!==i&&quickLabel(o)===l))l+=" · "+(q.mode==="credit"?(q.lender||"credit"):(modeName[q.mode]||q.mode));return '<button type="button" class="chip quick" data-q="'+i+'">'+esc(l)+'</button>'}).join("")+'</div></div>':'')+
     '<div class="big-amt"><span>₹</span><input id="amt" inputmode="decimal" placeholder="0" value="'+esc(t.amount)+'" autofocus aria-label="Amount in rupees"></div>'+
     '<div class="field"><label>Category</label><div class="chips" id="catChips">'+catChips()+'</div></div>'+
     '<div id="creditBox"'+(type==="expense"?"":" hidden")+'><label class="credit-toggle"><input type="checkbox" id="onCredit"'+(credit?" checked":"")+'><span><b>Bought on credit</b><small>Not paid yet. You\'ll pay the shop later.</small></span></label>'+
@@ -938,7 +948,7 @@ function cloudOff(btn){const pending=C.cfg&&!C.cfg.connected;
 /* ---------- events ---------- */
 $("prevM").onclick=()=>{S.cur=new Date(S.cur.getFullYear(),S.cur.getMonth()-1,1);render()};
 $("nextM").onclick=()=>{S.cur=new Date(S.cur.getFullYear(),S.cur.getMonth()+1,1);render()};
-TABS.forEach(t=>$("tab-"+t).onclick=()=>{S.tab=t;render()});
+TABS.forEach(t=>$("tab-"+t).onclick=()=>{S.tab=t;if(t!=="overview")ensureGuard();render()});
 $("fab").onclick=()=>{if(!store)return;S.tab==="recurring"?subSheet():S.tab==="loans"?loanSheet():txSheet()};
 document.addEventListener("click",e=>{
   const a=e.target.closest("[data-act],[data-edit],[data-editsub],[data-pay],[data-payloan],[data-editloan],[data-credpay],[data-credhist],[data-goto],[data-undosettle],[data-fcat],[data-fmode],[data-fslot]");if(!a||!store)return;
