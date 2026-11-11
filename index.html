@@ -193,6 +193,7 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 @media (max-width:360px){.row3{grid-template-columns:1fr 1fr}.row3 .field:last-child{grid-column:1/-1}}
 .trio.duo{grid-template-columns:repeat(2,1fr)}
 .commit .btn,.cloudbar .btn{white-space:nowrap}
+.mkrec{border:1px dashed var(--accent);background:var(--accent-soft);color:var(--fg);border-radius:10px;padding:11px 12px;font:inherit;font-weight:600;font-size:14px;text-align:left;cursor:pointer}
 .pace{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px 14px;display:grid;gap:10px}
 .pace small{display:block;font-size:12px;color:var(--muted)}
 .pace-top{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
@@ -600,7 +601,9 @@ function renderOverview(mt,spent){
         return '<button class="mode'+(x[0]===top?" top":"")+'" data-fslot="'+x[0]+'"'+(v?"":" disabled")+'><small>'+x[1]+(v?" ›":"")+'</small><div class="num">'+(v?fmtK(v):"—")+'</div><i class="sbar"><b style="width:'+(v/timed*100).toFixed(0)+'%"></b></i></button>'}).join("")+'</div>'}}
   // commitments (one card)
   { const rows=[];const sm=subs().reduce((a,x)=>a+perMonth(x),0);
-    if(sm)rows.push('<button class="crow" data-goto="recurring"><span>Renewals &amp; salaries <small>'+subs().length+' active</small></span><b class="num">'+fmt(Math.round(sm))+'/mo</b></button>');
+    const salL=subs().filter(x=>x.cat==="salary_out"),renL=subs().filter(x=>x.cat!=="salary_out");
+    if(salL.length)rows.push('<button class="crow" data-goto="recurring"><span>Salaries <small>'+salL.map(x=>esc(x.name)).slice(0,3).join(", ")+(salL.length>3?" +"+(salL.length-3):"")+'</small></span><b class="num">'+fmt(Math.round(salL.reduce((a,x)=>a+perMonth(x),0)))+'/mo</b></button>');
+    if(renL.length)rows.push('<button class="crow" data-goto="recurring"><span>Subscriptions &amp; recharges <small>'+renL.length+' active · avg</small></span><b class="num">'+fmt(Math.round(renL.reduce((a,x)=>a+perMonth(x),0)))+'/mo</b></button>');
     const emis=loans().filter(l=>l.dir==="borrowed"&&loanStats(l).bal>0);
     if(emis.length)rows.push('<button class="crow" data-goto="loans"><span>Loan EMIs <small>'+fmt(emis.reduce((a,l)=>a+loanStats(l).bal,0))+' outstanding</small></span><b class="num">'+fmt(emis.reduce((a,l)=>a+(Number(l.emi)||0),0))+'/mo</b></button>');
     const cd=creditDue();if(cd){const shops=creditBook().filter(o=>o.due>0);rows.push('<button class="crow" data-goto="loans"><span>Shop credit to pay <small>'+shops.map(o=>esc(o.name)).slice(0,2).join(", ")+(shops.length>2?" +"+(shops.length-2):"")+'</small></span><b class="num">'+fmt(cd)+'</b></button>')}
@@ -656,11 +659,15 @@ function subCard(s){const m=catMap[s.cat]||catMap.other;const dl=daysBetween(tod
 
 function renderRecurring(){
   const el=$("v-recurring");const list=subs();
-  const sm=list.reduce((a,s)=>a+perMonth(s),0);
-  let h='<div class="commit"><div><small>Monthly equivalent</small><b>'+list.length+' active</b></div><div class="num">'+fmt(sm)+'/mo · '+fmt(sm*12)+'/yr</div></div>';
+  const sal=list.filter(x=>x.cat==="salary_out"),ren=list.filter(x=>x.cat!=="salary_out");
+  const pm=a=>Math.round(a.reduce((t,x)=>t+perMonth(x),0));
+  let h='<div class="commits"><small class="clabel">Every month</small>'+
+    (sal.length?'<div class="crow"><span>Salaries <small>'+sal.length+' '+(sal.length===1?"person":"people")+'</small></span><b class="num">'+fmt(pm(sal))+'/mo</b></div>':'')+
+    (ren.length?'<div class="crow"><span>Subscriptions &amp; recharges <small>'+ren.length+' active · avg per month</small></span><b class="num">'+fmt(pm(ren))+'/mo</b></div>':'')+
+    '<div class="crow"><span>Total <small>'+fmt(pm(list)*12)+' a year</small></span><b class="num">'+fmt(pm(list))+'/mo</b></div></div>';
   h+='<button class="btn" data-act="newsub">+ Add renewal or salary</button>';
+  if(list.length){if(sal.length)h+='<h2>Salaries</h2>'+sal.map(subCard).join("");if(ren.length)h+='<h2>Subscriptions &amp; recharges</h2>'+ren.map(subCard).join("")}
   if(!list.length)h+='<div class="empty"><b>Track renewals before they lapse</b><span>Add prepaid recharges (28 / 84-day packs), broadband, DTH, OTT and software subscriptions. "Mark paid" logs the payment and rolls the due date forward.</span></div>';
-  else h+=list.map(subCard).join("");
   el.innerHTML=h;
 }
 
@@ -710,6 +717,7 @@ function txSheet(t){
     '<div class="field" id="modeField"'+(credit?" hidden":"")+'><label>Paid via</label><div class="chips" id="modeChips">'+MODES.map(m=>'<button type="button" class="chip" data-mode="'+m[0]+'" aria-pressed="'+(m[0]===mode)+'">'+m[1]+'</button>').join("")+'</div></div>'+
     '<div class="row3"><div class="field"><label for="dt">Date</label><input id="dt" type="date" value="'+esc(t.date)+'"></div><div class="field"><label for="tm">Time</label><select id="tm"><option value="">Not set</option>'+SLOTS.map(x=>'<option value="'+x[0]+'"'+(x[0]===(editing?t.slot||"":currentSlot())?" selected":"")+'>'+x[1]+'</option>').join("")+'</select></div><div class="field"><label for="nt">Note</label><input id="nt" placeholder="Optional" value="'+esc(t.note)+'" maxlength="80"></div></div>'+
     '<div class="note" id="txErr" role="alert"></div>'+
+    (editing&&t.type==="expense"&&!t.loanId&&!t.subId?'<button type="button" class="mkrec" id="mkrec">↻ Pay this every month: add to Renewals</button>':'')+
     '<div class="sheet-acts">'+(editing?'<div style="display:flex;gap:8px"><button type="button" class="btn danger" id="del">Delete</button>'+(t.loanId||t.subId?'':'<button type="button" class="btn" id="rep">Repeat today</button>')+'</div>':'')+'<div class="right"><button type="button" class="btn" id="cancel">Cancel</button><button class="btn primary" type="submit">'+(editing?"Save":"Add entry")+'</button></div></div>'+
     '</div></form>',()=>{
       $("cancel").onclick=closeSheet;
@@ -725,6 +733,11 @@ function txSheet(t){
       $("modeChips").onclick=e=>{const b=e.target.closest("[data-mode]");if(!b)return;mode=b.dataset.mode;[...$("modeChips").children].forEach(x=>x.setAttribute("aria-pressed",x.dataset.mode===mode))};
       if(quick.length)$("quickChips").onclick=e=>{const b=e.target.closest("[data-q]");if(!b)return;b.disabled=true;closeSheet();addCopy(quick[Number(b.dataset.q)])};
       if(editing&&$("rep"))$("rep").onclick=()=>{closeSheet();addCopy(t)};
+      if(editing&&$("mkrec"))$("mkrec").onclick=async()=>{const name=(t.note||catMap[t.cat]?.name||"Payment").trim();
+        if(subs().some(x=>x.name.toLowerCase()===name.toLowerCase())){$("txErr").textContent="“"+name+"” is already in Renewals.";return}
+        const sub={kind:"sub",name,amount:t.amount,cycle:"m1",cat:t.cat,mode:t.mode==="credit"?"cash":t.mode,next:advance(t.date,"m1")};
+        await store.add(sub);if(sub.id){const d=Object.assign({},t,{subId:sub.id});delete d.id;await store.set(t.id,d)}
+        closeSheet();toast(name+" added to Renewals · next due "+parse(sub.next).toLocaleDateString("en-IN",{day:"numeric",month:"short"}))};
       if(editing)$("del").onclick=async()=>{const b=$("del");if(b.dataset.c!=="1"){b.dataset.c="1";b.textContent="Tap again to delete";return}
         await store.del(t.id);closeSheet();toast("Entry deleted")};
       $("txf").onsubmit=async e=>{e.preventDefault();
