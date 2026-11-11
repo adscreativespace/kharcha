@@ -174,6 +174,8 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 .slots .mode{padding:7px 6px;display:grid;gap:3px}.slots .mode small{font-size:10.5px}.slots .num{font-size:12.5px}
 .slots .mode.top{border-color:var(--accent)}.slots .mode:disabled{opacity:.5;cursor:default}
 .sbar{display:block;height:3px;background:var(--sunk);border-radius:2px;overflow:hidden}.sbar b{display:block;height:100%;background:var(--accent)}
+.note-row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.slothead{font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;padding:6px 2px 2px}
 .pace{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px 14px;display:grid;gap:10px}
 .pace small{display:block;font-size:12px;color:var(--muted)}
 .pace-top{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
@@ -255,7 +257,10 @@ const catMap={};[...EXP_CATS,...INC_CATS].forEach(c=>catMap[c[0]]={id:c[0],name:
 const MODES_ALL=MODES.concat([["credit","On credit"]]);
 const SLOTS=[["morning","Morning"],["noon","Noon"],["afternoon","Afternoon"],["evening","Evening"],["night","Night"]];
 const slotName=Object.fromEntries(SLOTS);
-function currentSlot(){const h=new Date().getHours();return h>=5&&h<11?"morning":h<14&&h>=11?"noon":h>=14&&h<17?"afternoon":h>=17&&h<21?"evening":"night"}
+function slotOfHour(h){return h>=5&&h<11?"morning":h>=11&&h<14?"noon":h>=14&&h<17?"afternoon":h>=17&&h<21?"evening":"night"}
+function currentSlot(){return slotOfHour(new Date().getHours())}
+const SLOT_IDX={morning:0,noon:1,afternoon:2,evening:3,night:4};
+function effSlot(t){if(t.slot)return t.slot;const c=Number(t.created);if(c>1e12){const d=new Date(c);if(iso(d)===t.date)return slotOfHour(d.getHours())}return ""}
 const modeName=Object.fromEntries(MODES_ALL);const cycleName=Object.fromEntries(CYCLES);
 
 /* ---------- helpers ---------- */
@@ -282,7 +287,7 @@ function toast(msg,undo){$("toastHost").innerHTML='<div class="toast" role="stat
   clearTimeout(toast.t);toast.t=setTimeout(()=>$("toastHost").innerHTML="",undo?5000:2200)}
 
 /* ---------- state ---------- */
-const S={items:[],cur:new Date(new Date().getFullYear(),new Date().getMonth(),1),tab:"overview",q:"",fMode:"",fCat:"",ready:false,mode:"local"};
+const S={sortAsc:(()=>{try{return localStorage.getItem("kharcha-sortasc")==="1"}catch(e){return false}})(),items:[],cur:new Date(new Date().getFullYear(),new Date().getMonth(),1),tab:"overview",q:"",fMode:"",fCat:"",ready:false,mode:"local"};
 let store=null;
 
 /* ---------- storage: on this device ---------- */
@@ -607,7 +612,10 @@ function txRow(t){const m=catMap[t.cat]||catMap.other;const isInc=t.type==="inco
 function renderEntries(mt){
   const el=$("v-entries");const q=S.q.trim().toLowerCase();
   const list=mt.filter(t=>(!S.fMode||t.mode===S.fMode)&&(!S.fCat||t.cat===S.fCat)&&(!S.fTime||t.slot===S.fTime)&&(!q||(t.note||"").toLowerCase().includes(q)||(catMap[t.cat]?.name||"").toLowerCase().includes(q)))
-    .sort((a,b)=>a.date===b.date?(b.created||0)-(a.created||0):a.date<b.date?1:-1);
+    .sort((a,b)=>{const dir=S.sortAsc?1:-1;
+      if(a.date!==b.date)return (a.date<b.date?-1:1)*dir;
+      const sa=effSlot(a),sb=effSlot(b);const ia=sa?SLOT_IDX[sa]:(S.sortAsc?99:-1),ib=sb?SLOT_IDX[sb]:(S.sortAsc?99:-1);
+      if(ia!==ib)return (ia-ib)*dir;return ((a.created||0)-(b.created||0))*dir});
   const usedCats=[...new Set(mt.map(t=>t.cat))];
   let h='<div class="filters"><input id="q" type="search" placeholder="Search notes" value="'+esc(S.q)+'"><select id="fMode"><option value="">All modes</option>'+MODES_ALL.map(m=>'<option value="'+m[0]+'"'+(S.fMode===m[0]?" selected":"")+'>'+m[1]+'</option>').join("")+'</select><select id="fCat"><option value="">All categories</option>'+usedCats.map(c=>'<option value="'+c+'"'+(S.fCat===c?" selected":"")+'>'+esc(catMap[c]?.name||c)+'</option>').join("")+'</select><select id="fTime"><option value="">Any time</option>'+SLOTS.map(x=>'<option value="'+x[0]+'"'+(S.fTime===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+'</select></div>';
   if(!mt.length){el.innerHTML=emptyState();return}
@@ -619,9 +627,10 @@ function renderEntries(mt){
     const mostly=tops.length&&tt?'<span>Most often <b>'+slotName[tops[0][0]]+' ('+Math.round(tops[0][1]/tt*100)+'%)</b></span>':'';
     if(cp&&sum)h+='<div class="pace pace-sm"><small>'+esc(catMap[S.fCat]?.name||"")+' at this pace</small><div class="pace-rows"><span>This month <b class="num">≈ '+fmt(Math.round(cp.month))+'</b></span><span>Over a year <b class="num">≈ '+fmt(Math.round(cp.year/100)*100)+'</b></span>'+mostly+'</div></div>'}
   if(S.fMode||S.fCat||S.q||S.fTime)h+='<div class="toolsrow"><button class="btn" data-act="clearfilters">Clear filters · show all</button></div>';
-  if(list.length)h+='<div class="note">'+list.length+' entries · '+fmt(tot)+' spent</div>';
+  if(list.length)h+='<div class="note-row"><span class="note">'+list.length+' entries · '+fmt(tot)+' spent</span><button class="linkbtn" data-act="sortdir">'+(S.sortAsc?"Oldest first ↑":"Newest first ↓")+'</button></div>';
   Object.keys(groups).forEach(d=>{const dt=parse(d);const dayExp=groups[d].filter(t=>t.type==="expense").reduce((a,t)=>a+t.amount,0);
-    h+='<div class="daygroup"><div class="dayhead"><span>'+dt.toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})+'</span><span class="num">'+(dayExp?fmt(dayExp):"")+'</span></div>'+groups[d].map(txRow).join("")+'</div>'});
+    h+='<div class="daygroup"><div class="dayhead"><span>'+dt.toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})+'</span><span class="num">'+(dayExp?fmt(dayExp):"")+'</span></div>'+(()=>{const rows=groups[d];const any=rows.some(effSlot);let last=null,out="";
+      rows.forEach(t=>{const sl=effSlot(t);if(any&&sl!==last){out+='<div class="slothead">'+(sl?slotName[sl]:"Time not set")+'</div>';last=sl}out+=txRow(t)});return out})()+'</div>'});
   el.innerHTML=h;
   const qi=$("q");qi.oninput=()=>{S.q=qi.value;const pos=qi.selectionStart;renderEntries(monthTx());const n=$("q");n.focus();n.setSelectionRange(pos,pos)};
   $("fMode").onchange=e=>{S.fMode=e.target.value;renderEntries(monthTx())};
@@ -935,6 +944,7 @@ document.addEventListener("click",e=>{
   const a=e.target.closest("[data-act],[data-edit],[data-editsub],[data-pay],[data-payloan],[data-editloan],[data-credpay],[data-credhist],[data-goto],[data-undosettle],[data-fcat],[data-fmode],[data-fslot]");if(!a||!store)return;
   if(a.dataset.fslot){S.fTime=a.dataset.fslot;S.fCat="";S.fMode="";S.q="";S.tab="entries";render();window.scrollTo(0,0);return}
   if(a.dataset.fcat||a.dataset.fmode){S.fCat=a.dataset.fcat||"";S.fMode=a.dataset.fmode||"";S.fTime="";S.q="";S.tab="entries";render();window.scrollTo(0,0);return}
+  if(a.dataset.act==="sortdir"){S.sortAsc=!S.sortAsc;try{localStorage.setItem("kharcha-sortasc",S.sortAsc?"1":"")}catch(e){}render();return}
   if(a.dataset.act==="togglecats"){S.allCats=!S.allCats;render();return}
   if(a.dataset.act==="clearfilters"){S.fCat="";S.fMode="";S.fTime="";S.q="";render();return}
   if(a.dataset.credpay){settleSheet(a.dataset.credpay);return}
