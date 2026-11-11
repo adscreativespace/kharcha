@@ -170,6 +170,10 @@ h2{font-family:var(--display);font-size:18px;font-weight:700;margin:4px 0 0;lett
 .credit-toggle b{display:block;font-weight:600}.credit-toggle small{color:var(--muted);font-size:12px}
 #lenderChips{margin-top:8px}
 .danger-link{color:var(--bad)}
+.modes.slots{grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
+.slots .mode{padding:7px 6px;display:grid;gap:3px}.slots .mode small{font-size:10.5px}.slots .num{font-size:12.5px}
+.slots .mode.top{border-color:var(--accent)}.slots .mode:disabled{opacity:.5;cursor:default}
+.sbar{display:block;height:3px;background:var(--sunk);border-radius:2px;overflow:hidden}.sbar b{display:block;height:100%;background:var(--accent)}
 .pace{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px 14px;display:grid;gap:10px}
 .pace small{display:block;font-size:12px;color:var(--muted)}
 .pace-top{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
@@ -249,6 +253,9 @@ const PRESETS=[["Staff salary","salary_out","m1"],["Jio prepaid","recharge","d28
  ["Claude","subs","m1"],["Electricity bill","utilities","m1"],["FASTag","transport","m1"]];
 const catMap={};[...EXP_CATS,...INC_CATS].forEach(c=>catMap[c[0]]={id:c[0],name:c[1],color:c[2]});
 const MODES_ALL=MODES.concat([["credit","On credit"]]);
+const SLOTS=[["morning","Morning"],["noon","Noon"],["afternoon","Afternoon"],["evening","Evening"],["night","Night"]];
+const slotName=Object.fromEntries(SLOTS);
+function currentSlot(){const h=new Date().getHours();return h>=5&&h<11?"morning":h<14&&h>=11?"noon":h>=14&&h<17?"afternoon":h>=17&&h<21?"evening":"night"}
 const modeName=Object.fromEntries(MODES_ALL);const cycleName=Object.fromEntries(CYCLES);
 
 /* ---------- helpers ---------- */
@@ -376,7 +383,7 @@ function frequentItems(){
   return Object.values(g).filter(o=>o.n>=2).sort((a,b)=>b.n-a.n||(a.last<b.last?1:-1)).slice(0,5).map(o=>o.t)}
 function quickLabel(t){const m=catMap[t.cat]||catMap.other;return (t.note||m.name)+" · "+fmt(t.amount)+(t.mode==="credit"?" · credit":"")}
 async function addCopy(t,date){
-  const doc={kind:"txn",type:t.type,amount:t.amount,cat:t.cat,mode:t.mode,date:date||todayIso(),note:t.note||"",created:Date.now()};
+  const doc={kind:"txn",type:t.type,amount:t.amount,cat:t.cat,mode:t.mode,date:date||todayIso(),note:t.note||"",slot:currentSlot(),created:Date.now()};
   if(t.mode==="credit"&&t.lender)doc.lender=t.lender;
   await store.add(doc);const id=doc.id;
   toast("Added "+(t.note||catMap[t.cat]?.name||"")+" "+fmt(t.amount),()=>{if(id)store.del(id).then(()=>toast("Removed"))});
@@ -395,7 +402,7 @@ function monthPace(){ // current month only
   return{el,days,fixed,variable,upcoming,varPerDay:el?variable/el:0,proj:fixed+upcoming+varProj}}
 function catPace(sum){const now=new Date();if(monthKey(S.cur)!==monthKey(now))return null;const el=now.getDate();if(el<5)return null;
   const days=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();const m=sum/el*days;return{month:m,year:sum/el*365}}
-const fmtK=n=>n>=100000?"₹"+(n/100000).toFixed(n<1000000?1:0).replace(/\.0$/,"")+"L":n>=1000?"₹"+(n/1000).toFixed(n<10000?1:0).replace(/\.0$/,"")+"k":fmt(n);
+const fmtK=n=>n>=100000?"₹"+(n/100000).toFixed(n<1000000?1:0).replace(/\.0$/,"")+"L":n>=1000?"₹"+(n/1000).toFixed(n<10000?1:0).replace(/\.0$/,"")+"k":fmt(Math.round(n));
 
 /* ---------- shop credit (udhaar) ---------- */
 function lenders(){const seen={};const out=[];
@@ -563,12 +570,16 @@ function renderOverview(mt,spent){
   // by mode
   const byMode={};exp.forEach(t=>byMode[t.mode]=(byMode[t.mode]||0)+t.amount);
   h+='<h2>How you paid</h2><div class="modes">'+MODES_ALL.filter(m=>byMode[m[0]]).map(m=>'<button class="mode" data-fmode="'+m[0]+'" aria-label="Show '+m[1]+' entries"><small>'+m[1]+' ›</small><div class="num">'+fmt(byMode[m[0]])+'</div></button>').join("")+'</div>';
+  { const bySlot={};let timed=0;exp.forEach(t=>{if(t.slot){bySlot[t.slot]=(bySlot[t.slot]||0)+t.amount;timed+=t.amount}});
+    if(timed){const top=Object.entries(bySlot).sort((a,b)=>b[1]-a[1])[0][0];const untimed=exp.filter(t=>!t.slot).length;
+      h+='<div class="sub-h"><h2>When you spend</h2><span>'+(untimed?untimed+" without time":"")+'</span></div><div class="modes slots">'+SLOTS.map(x=>{const v=bySlot[x[0]]||0;
+        return '<button class="mode'+(x[0]===top?" top":"")+'" data-fslot="'+x[0]+'"'+(v?"":" disabled")+'><small>'+x[1]+(v?" ›":"")+'</small><div class="num">'+(v?fmtK(v):"—")+'</div><i class="sbar"><b style="width:'+(v/timed*100).toFixed(0)+'%"></b></i></button>'}).join("")+'</div>'}}
   // daily
   const days=new Date(S.cur.getFullYear(),S.cur.getMonth()+1,0).getDate();const per=Array(days).fill(0);
   exp.forEach(t=>{per[Number(t.date.slice(8,10))-1]+=t.amount});const dmax=Math.max(...per,1);
   const isCurMonth=monthKey(S.cur)===monthKey(new Date());const td=new Date().getDate();
   const elapsed=isCurMonth?td:days;
-  h+='<div class="sub-h"><h2>Day by day</h2><span>avg '+fmt(spent/elapsed)+'/day · peak '+fmt(dmax)+'</span></div><div class="daily"><div class="daily-cols" aria-label="Daily spending chart">'+
+  h+='<div class="sub-h"><h2>Day by day</h2><span>avg '+fmt(Math.round(spent/elapsed))+'/day · peak '+fmt(dmax)+'</span></div><div class="daily"><div class="daily-cols" aria-label="Daily spending chart">'+
     per.map((v,i)=>'<i class="'+(v?"":"zero")+(isCurMonth&&i+1===td?" today":"")+'" style="height:'+(v?Math.max(3,v/dmax*100):1)+'%" title="'+(i+1)+' '+MONTHS[S.cur.getMonth()]+': '+fmt(v)+'"></i>').join("")+
     '</div><div class="daily-axis"><span>1</span><span>'+Math.ceil(days/2)+'</span><span>'+days+'</span></div></div>';
   // commitments
@@ -591,21 +602,23 @@ function exampleBar(){const n=S.items.filter(x=>x.example).length;
    '<span class="note">'+(last?"Last file backup "+parse(last).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})+". ":"")+'A backup file is a second, unencrypted copy; keep it private.</span>'}
 
 function txRow(t){const m=catMap[t.cat]||catMap.other;const isInc=t.type==="income";
-  return '<button class="row" data-edit="'+esc(t.id)+'"><span class="ic" style="background:'+m.color+'22;color:'+m.color+'">'+initials(m.name)+'</span><span class="t"><b>'+esc(t.note||m.name)+(t.example?'<span class="tag">example</span>':'')+'</b><small>'+esc(m.name)+' · '+(modeName[t.mode]||t.mode)+(t.mode==="credit"&&t.lender?' · '+esc(t.lender):'')+'</small></span><span class="amt'+(isInc?" in":"")+'">'+(isInc?"+":"−")+fmt(t.amount)+'</span></button>'}
+  return '<button class="row" data-edit="'+esc(t.id)+'"><span class="ic" style="background:'+m.color+'22;color:'+m.color+'">'+initials(m.name)+'</span><span class="t"><b>'+esc(t.note||m.name)+(t.example?'<span class="tag">example</span>':'')+'</b><small>'+esc(m.name)+' · '+(modeName[t.mode]||t.mode)+(t.mode==="credit"&&t.lender?' · '+esc(t.lender):'')+(t.slot?' · '+slotName[t.slot]:'')+'</small></span><span class="amt'+(isInc?" in":"")+'">'+(isInc?"+":"−")+fmt(t.amount)+'</span></button>'}
 
 function renderEntries(mt){
   const el=$("v-entries");const q=S.q.trim().toLowerCase();
-  const list=mt.filter(t=>(!S.fMode||t.mode===S.fMode)&&(!S.fCat||t.cat===S.fCat)&&(!q||(t.note||"").toLowerCase().includes(q)||(catMap[t.cat]?.name||"").toLowerCase().includes(q)))
+  const list=mt.filter(t=>(!S.fMode||t.mode===S.fMode)&&(!S.fCat||t.cat===S.fCat)&&(!S.fTime||t.slot===S.fTime)&&(!q||(t.note||"").toLowerCase().includes(q)||(catMap[t.cat]?.name||"").toLowerCase().includes(q)))
     .sort((a,b)=>a.date===b.date?(b.created||0)-(a.created||0):a.date<b.date?1:-1);
   const usedCats=[...new Set(mt.map(t=>t.cat))];
-  let h='<div class="filters"><input id="q" type="search" placeholder="Search notes" value="'+esc(S.q)+'"><select id="fMode"><option value="">All modes</option>'+MODES_ALL.map(m=>'<option value="'+m[0]+'"'+(S.fMode===m[0]?" selected":"")+'>'+m[1]+'</option>').join("")+'</select><select id="fCat"><option value="">All categories</option>'+usedCats.map(c=>'<option value="'+c+'"'+(S.fCat===c?" selected":"")+'>'+esc(catMap[c]?.name||c)+'</option>').join("")+'</select></div>';
+  let h='<div class="filters"><input id="q" type="search" placeholder="Search notes" value="'+esc(S.q)+'"><select id="fMode"><option value="">All modes</option>'+MODES_ALL.map(m=>'<option value="'+m[0]+'"'+(S.fMode===m[0]?" selected":"")+'>'+m[1]+'</option>').join("")+'</select><select id="fCat"><option value="">All categories</option>'+usedCats.map(c=>'<option value="'+c+'"'+(S.fCat===c?" selected":"")+'>'+esc(catMap[c]?.name||c)+'</option>').join("")+'</select><select id="fTime"><option value="">Any time</option>'+SLOTS.map(x=>'<option value="'+x[0]+'"'+(S.fTime===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+'</select></div>';
   if(!mt.length){el.innerHTML=emptyState();return}
   if(!list.length){h+='<div class="empty"><b>No matches</b><span>Clear the search or filters to see all entries.</span></div>'}
   const groups={};list.forEach(t=>(groups[t.date]=groups[t.date]||[]).push(t));
   const tot=list.reduce((a,t)=>a+(t.type==="expense"?t.amount:0),0);
-  if(S.fCat&&!S.fMode&&!S.q&&!FIXED_CATS.has(S.fCat)){const sum=mt.filter(t=>t.cat===S.fCat&&t.type==="expense").reduce((a,t)=>a+t.amount,0);const cp=catPace(sum);
-    if(cp&&sum)h+='<div class="pace pace-sm"><small>'+esc(catMap[S.fCat]?.name||"")+' at this pace</small><div class="pace-rows"><span>This month <b class="num">≈ '+fmt(Math.round(cp.month))+'</b></span><span>Over a year <b class="num">≈ '+fmt(Math.round(cp.year/100)*100)+'</b></span></div></div>'}
-  if(S.fMode||S.fCat||S.q)h+='<div class="toolsrow"><button class="btn" data-act="clearfilters">Clear filters · show all</button></div>';
+  if(S.fCat&&!S.fMode&&!S.q&&!S.fTime&&!FIXED_CATS.has(S.fCat)){const ce=mt.filter(t=>t.cat===S.fCat&&t.type==="expense");const sum=ce.reduce((a,t)=>a+t.amount,0);const cp=catPace(sum);
+    const bs={};let tt=0;ce.forEach(t=>{if(t.slot){bs[t.slot]=(bs[t.slot]||0)+t.amount;tt+=t.amount}});const tops=Object.entries(bs).sort((a,b)=>b[1]-a[1]);
+    const mostly=tops.length&&tt?'<span>Most often <b>'+slotName[tops[0][0]]+' ('+Math.round(tops[0][1]/tt*100)+'%)</b></span>':'';
+    if(cp&&sum)h+='<div class="pace pace-sm"><small>'+esc(catMap[S.fCat]?.name||"")+' at this pace</small><div class="pace-rows"><span>This month <b class="num">≈ '+fmt(Math.round(cp.month))+'</b></span><span>Over a year <b class="num">≈ '+fmt(Math.round(cp.year/100)*100)+'</b></span>'+mostly+'</div></div>'}
+  if(S.fMode||S.fCat||S.q||S.fTime)h+='<div class="toolsrow"><button class="btn" data-act="clearfilters">Clear filters · show all</button></div>';
   if(list.length)h+='<div class="note">'+list.length+' entries · '+fmt(tot)+' spent</div>';
   Object.keys(groups).forEach(d=>{const dt=parse(d);const dayExp=groups[d].filter(t=>t.type==="expense").reduce((a,t)=>a+t.amount,0);
     h+='<div class="daygroup"><div class="dayhead"><span>'+dt.toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})+'</span><span class="num">'+(dayExp?fmt(dayExp):"")+'</span></div>'+groups[d].map(txRow).join("")+'</div>'});
@@ -613,6 +626,7 @@ function renderEntries(mt){
   const qi=$("q");qi.oninput=()=>{S.q=qi.value;const pos=qi.selectionStart;renderEntries(monthTx());const n=$("q");n.focus();n.setSelectionRange(pos,pos)};
   $("fMode").onchange=e=>{S.fMode=e.target.value;renderEntries(monthTx())};
   $("fCat").onchange=e=>{S.fCat=e.target.value;renderEntries(monthTx())};
+  $("fTime").onchange=e=>{S.fTime=e.target.value;renderEntries(monthTx())};
 }
 
 function subCard(s){const m=catMap[s.cat]||catMap.other;const dl=daysBetween(todayIso(),s.next);
@@ -656,7 +670,8 @@ function txSheet(t){
       '<datalist id="lenderList">'+ls.map(l=>'<option value="'+esc(l)+'">').join("")+'</datalist>'+
       (ls.length?'<div class="chips" id="lenderChips">'+ls.slice(0,6).map(l=>'<button type="button" class="chip" data-lender="'+esc(l)+'" aria-pressed="'+((t.lender||"").toLowerCase()===l.toLowerCase())+'">'+esc(l)+'</button>').join("")+'</div>':'')+'</div></div>'+
     '<div class="field" id="modeField"'+(credit?" hidden":"")+'><label>Paid via</label><div class="chips" id="modeChips">'+MODES.map(m=>'<button type="button" class="chip" data-mode="'+m[0]+'" aria-pressed="'+(m[0]===mode)+'">'+m[1]+'</button>').join("")+'</div></div>'+
-    '<div class="grid2"><div class="field"><label for="dt">Date</label><input id="dt" type="date" value="'+esc(t.date)+'"></div><div class="field"><label for="nt">Note</label><input id="nt" placeholder="e.g. Chai with client" value="'+esc(t.note)+'" maxlength="80"></div></div>'+
+    '<div class="grid2"><div class="field"><label for="dt">Date</label><input id="dt" type="date" value="'+esc(t.date)+'"></div><div class="field"><label for="tm">Time of day</label><select id="tm"><option value="">Not set</option>'+SLOTS.map(x=>'<option value="'+x[0]+'"'+(x[0]===(editing?t.slot||"":currentSlot())?" selected":"")+'>'+x[1]+'</option>').join("")+'</select></div></div>'+
+    '<div class="field"><label for="nt">Note</label><input id="nt" placeholder="e.g. Chai with client" value="'+esc(t.note)+'" maxlength="80"></div>'+
     '<div class="note" id="txErr" role="alert"></div>'+
     '<div class="sheet-acts">'+(editing?'<div style="display:flex;gap:8px"><button type="button" class="btn danger" id="del">Delete</button>'+(t.loanId||t.subId?'':'<button type="button" class="btn" id="rep">Repeat today</button>')+'</div>':'')+'<div class="right"><button type="button" class="btn" id="cancel">Cancel</button><button class="btn primary" type="submit">'+(editing?"Save":"Add entry")+'</button></div></div>'+
     '</div></form>',()=>{
@@ -684,6 +699,7 @@ function txSheet(t){
           const known=lenders().find(x=>x.toLowerCase()===lender.toLowerCase());if(known)lender=known}
         const doc={kind:"txn",type,amount,cat,mode:isCredit?"credit":mode,date,note:$("nt").value.trim(),created:t.created||Date.now()};
         if(isCredit)doc.lender=lender;
+        if($("tm").value)doc.slot=$("tm").value;
         if(t.subId)doc.subId=t.subId;if(t.loanId)doc.loanId=t.loanId;if(t.example)doc.example=true;
         try{editing?await store.set(t.id,doc):await store.add(doc);closeSheet();toast(editing?"Saved":"Added "+fmt(amount));
           if(date.slice(0,7)!==monthKey(S.cur)){S.cur=new Date(parse(date).getFullYear(),parse(date).getMonth(),1);render()}}
@@ -742,7 +758,7 @@ async function addExamples(){const y=S.cur.getFullYear(),m=S.cur.getMonth();cons
 async function clearExamples(){const ex=S.items.filter(x=>x.example);for(const x of ex)await store.del(x.id);toast("Examples cleared")}
 
 async function exportCsv(){
-  const rows=[["Date","Type","Amount","Category","Mode","Credit from","Note"]].concat(txns().slice().sort((a,b)=>a.date<b.date?-1:1).map(t=>[t.date,t.type,t.amount,catMap[t.cat]?.name||t.cat,modeName[t.mode]||t.mode,t.lender||"",t.note||""]));
+  const rows=[["Date","Type","Amount","Category","Mode","Credit from","Time of day","Note"]].concat(txns().slice().sort((a,b)=>a.date<b.date?-1:1).map(t=>[t.date,t.type,t.amount,catMap[t.cat]?.name||t.cat,modeName[t.mode]||t.mode,t.lender||"",slotName[t.slot]||"",t.note||""]));
   const csv=rows.map(r=>r.map(v=>{v=String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join(",")).join("\n");
   saveFile("kharcha-"+todayIso()+".csv",csv,"text/csv");toast("CSV saved to Downloads")
 }
@@ -916,10 +932,11 @@ $("nextM").onclick=()=>{S.cur=new Date(S.cur.getFullYear(),S.cur.getMonth()+1,1)
 TABS.forEach(t=>$("tab-"+t).onclick=()=>{S.tab=t;render()});
 $("fab").onclick=()=>{if(!store)return;S.tab==="recurring"?subSheet():S.tab==="loans"?loanSheet():txSheet()};
 document.addEventListener("click",e=>{
-  const a=e.target.closest("[data-act],[data-edit],[data-editsub],[data-pay],[data-payloan],[data-editloan],[data-credpay],[data-credhist],[data-goto],[data-undosettle],[data-fcat],[data-fmode]");if(!a||!store)return;
-  if(a.dataset.fcat||a.dataset.fmode){S.fCat=a.dataset.fcat||"";S.fMode=a.dataset.fmode||"";S.q="";S.tab="entries";render();window.scrollTo(0,0);return}
+  const a=e.target.closest("[data-act],[data-edit],[data-editsub],[data-pay],[data-payloan],[data-editloan],[data-credpay],[data-credhist],[data-goto],[data-undosettle],[data-fcat],[data-fmode],[data-fslot]");if(!a||!store)return;
+  if(a.dataset.fslot){S.fTime=a.dataset.fslot;S.fCat="";S.fMode="";S.q="";S.tab="entries";render();window.scrollTo(0,0);return}
+  if(a.dataset.fcat||a.dataset.fmode){S.fCat=a.dataset.fcat||"";S.fMode=a.dataset.fmode||"";S.fTime="";S.q="";S.tab="entries";render();window.scrollTo(0,0);return}
   if(a.dataset.act==="togglecats"){S.allCats=!S.allCats;render();return}
-  if(a.dataset.act==="clearfilters"){S.fCat="";S.fMode="";S.q="";render();return}
+  if(a.dataset.act==="clearfilters"){S.fCat="";S.fMode="";S.fTime="";S.q="";render();return}
   if(a.dataset.credpay){settleSheet(a.dataset.credpay);return}
   if(a.dataset.credhist){creditHistorySheet(a.dataset.credhist);return}
   if(a.dataset.goto){S.tab=a.dataset.goto;render();window.scrollTo(0,0);return}
